@@ -19,7 +19,7 @@ All participants must complete the following setup **before the lab session on F
 
 ### Ubuntu User
 
-* Install the dependencies bare metal.
+* Install the dependencies in step 2 on bare metal.
 
 ###
 
