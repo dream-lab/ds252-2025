@@ -1,18 +1,18 @@
 
 ````markdown
-# 🔧 System Setup for Lab (Ubuntu)
+# System Setup for Lab (Ubuntu)
 
 Machines must be ready with AWS CLI, Azure CLI, and required dependencies.
 
 ## Step 1: Update System & Install Basics
-```bash
+```
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y unzip curl wget jq git
 ````
 
 ## Step 2: Install AWS CLI
 
-```bash
+```
 curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 unzip awscliv2.zip
 sudo ./aws/install
