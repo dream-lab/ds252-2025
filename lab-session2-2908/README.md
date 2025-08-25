@@ -1,3 +1,24 @@
+## Step 0: Account creation
+
+AWS Account
+1. Go to [AWS Signup](https://aws.amazon.com/free).
+2. Click **Create a Free Account**.
+3. Provide email, password, and account name.
+4. Enter billing information (credit/debit card required, charges apply if free tier exceeded).
+5. Verify phone number with OTP.
+6. Choose the **Free Tier** plan.
+7. Log in to [AWS Console](https://console.aws.amazon.com/).
+
+Azure Account
+1. Go to [Azure Signup](https://azure.microsoft.com/en-us/free).
+2. Click **Start Free**.
+3. Sign in with a Microsoft account or create one.
+4. Provide billing information (credit/debit card required, charges apply if free credits are exhausted).
+5. Verify phone number with OTP.
+6. You get **$200 free credits for 30 days**.
+7. Log in to [Azure Portal](https://portal.azure.com/).
+
+
 ## Step 1: Update System & Install Basics
 
 ````markdown
