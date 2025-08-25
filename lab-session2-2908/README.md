@@ -40,7 +40,4 @@ aws configure
 ```bash
 az login
 # Opens browser for login with Azure account credentials
-```
-
-```
 
