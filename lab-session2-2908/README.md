@@ -1,14 +1,6 @@
-## Step 1: Basic Steps
+## Step 1: Update System & Install Basics
 
 ````markdown
-
-
-# System Setup for Lab (Ubuntu)
-
-Machines must be ready with AWS CLI, Azure CLI, and required dependencies.
-
-## Step 1: Update System & Install Basics
-```
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y unzip curl wget jq git
 ````
