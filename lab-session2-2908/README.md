@@ -1,5 +1,8 @@
+## Step 1: Basic Steps
 
 ````markdown
+
+
 # System Setup for Lab (Ubuntu)
 
 Machines must be ready with AWS CLI, Azure CLI, and required dependencies.
