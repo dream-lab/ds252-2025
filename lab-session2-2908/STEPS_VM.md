@@ -29,7 +29,7 @@ chmod 400 LabKey.pem
 
 # 2. Launch instance (AMI ID varies by region)
 aws ec2 run-instances \
-  --image-id ami-09251aa2e0071bf5e \   # Amazon Linux 2 for ap-south-1
+  --image-id ami-0f5ee92e2d63afc18 \   # Ubuntu 22.04 LTS for ap-south-1
   --count 1 \
   --instance-type t2.micro \
   --key-name LabKey \
@@ -39,7 +39,7 @@ aws ec2 run-instances \
 aws ec2 describe-instances --query "Reservations[*].Instances[*].[InstanceId,State.Name,PublicIpAddress]" --output table
 
 # 4. Connect via SSH
-ssh -i LabKey.pem ec2-user@<PUBLIC_IP>  # Use ec2-user for Amazon Linux 2
+ssh -i LabKey.pem ubuntu@<PUBLIC_IP>
 ```
 
 ---
