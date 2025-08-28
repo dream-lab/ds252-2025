@@ -127,7 +127,7 @@ To remove the port access when no longer needed:
 **AWS CLI:**
 ```bash
 aws ec2 revoke-security-group-ingress \
-  --group-id <SECURITY_GROUP_ID> \
+  --group-name lab-secure \
   --protocol tcp \
   --port 5001 \
   --cidr 0.0.0.0/0

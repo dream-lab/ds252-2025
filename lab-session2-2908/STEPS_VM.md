@@ -22,23 +22,37 @@
 
 ### B. AWS CLI Steps
 
+⚠️ **SECURITY WARNING**: Never use `--security-groups default` as it may have overly permissive rules that expose your instance to the entire internet!
+
 ```bash
 # 1. Create a key pair (download PEM file)
 aws ec2 create-key-pair --key-name LabKey --query "KeyMaterial" --output text > LabKey.pem
 chmod 400 LabKey.pem
 
-# 2. Launch instance (AMI ID varies by region)
+# 2. Create a secure security group first (IMPORTANT!)
+aws ec2 create-security-group \
+  --group-name lab-secure \
+  --description "Secure group for lab - SSH only"
+
+# Add only SSH access (port 22)
+aws ec2 authorize-security-group-ingress \
+  --group-name lab-secure \
+  --protocol tcp \
+  --port 22 \
+  --cidr 0.0.0.0/0
+
+# 3. Launch instance with the secure security group
 aws ec2 run-instances \
-  --image-id ami-0f5ee92e2d63afc18 \   # Ubuntu 22.04 LTS for ap-south-1
+  --image-id ami-07f07a6e1060cd2a8 \
   --count 1 \
   --instance-type t2.micro \
   --key-name LabKey \
-  --security-groups default
+  --security-groups lab-secure
 
-# 3. Get instance details
+# 4. Get instance details
 aws ec2 describe-instances --query "Reservations[*].Instances[*].[InstanceId,State.Name,PublicIpAddress]" --output table
 
-# 4. Connect via SSH
+# 5. Connect via SSH
 ssh -i LabKey.pem ubuntu@<PUBLIC_IP>
 ```
 
