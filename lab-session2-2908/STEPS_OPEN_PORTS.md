@@ -31,7 +31,7 @@ aws ec2 describe-instances --instance-ids <INSTANCE_ID> --query 'Reservations[0]
 
 # 2. Add inbound rule for port 5001
 aws ec2 authorize-security-group-ingress \
-  --group-id <SECURITY_GROUP_ID> \
+  --group-name lab-secure \
   --protocol tcp \
   --port 5001 \
   --cidr 0.0.0.0/0
