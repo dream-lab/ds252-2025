@@ -26,7 +26,6 @@ This lab extends your previous Flask-on-EC2 work into a production-style path wi
 
 ### Accounts & Permissions
 - AWS account with CLI configured: `aws configure` (verify with `aws sts get-caller-identity`).
-- Permissions (or a TA-managed role) for: **S3, ECR, ECS, EC2/Auto Scaling, ELB/ALB, CloudWatch, Budgets/Cost Explorer (read)**.
 
 ### Local Tools
 - Git ≥ 2.30  
@@ -35,13 +34,89 @@ This lab extends your previous Flask-on-EC2 work into a production-style path wi
 - Java 11+ (JRE)  
 - Apache **JMeter 5.6+** (install script provided below)
 
-### Pre-Lab Reading (skim)
+### Pre-Lab Reading
 - [S3 Versioning](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html?utm_source=chatgpt.com)
 - [S3 Lifecycle](https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lifecycle-mgmt.html?utm_source=chatgpt.com)
 - [ECS Service Autoscaling](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/service-autoscaling-targettracking.html?utm_source=chatgpt.com)
 - [ALB Target Groups](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-target-groups.html?utm_source=chatgpt.com)
 - [AWS Budgets](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-create.html?utm_source=chatgpt.com)
 - [JMeter](https://jmeter.apache.org/?utm_source=chatgpt.com)
+
+### JMeter Setup
+
+JMeter is Java-based. Install a supported OpenJDK first, then JMeter.
+
+**Linux (Ubuntu/Debian)**
+
+```bash
+# Java
+sudo apt-get update
+sudo apt-get install -y openjdk-17-jre
+
+# JMeter (download + unpack to ~/jmeter)
+cd ~
+curl -L -o apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-5.6.3.tgz
+mkdir -p ~/jmeter && tar -xzf apache-jmeter.tgz -C ~/jmeter --strip-components=1
+
+# Add to PATH (temporary for this shell)
+export PATH="$HOME/jmeter/bin:$PATH"
+
+# Verify
+java -version
+jmeter -v
+```
+
+**Windows WSL**
+
+```bash
+sudo apt-get update && sudo apt-get install -y openjdk-17-jre
+curl -L -o apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-5.6.3.tgz
+mkdir -p ~/jmeter && tar -xzf apache-jmeter.tgz -C ~/jmeter --strip-components=1
+export PATH="$HOME/jmeter/bin:$PATH"
+jmeter -n -v
+```
+
+**macOS**
+```bash
+# Java (Homebrew)
+brew install openjdk
+
+# JMeter
+cd ~
+curl -L -o apache-jmeter.tgz https://downloads.apache.org/jmeter/binaries/apache-jmeter-5.6.3.tgz
+mkdir -p ~/jmeter && tar -xzf apache-jmeter.tgz -C ~/jmeter --strip-components=1
+
+# PATH (temporary)
+export PATH="$HOME/jmeter/bin:$PATH"
+
+# Verify
+java -version
+jmeter -v
+```
+
+
+### AWS ECR/ECS/ALB prerequisites to confirm
+
+- IAM permissions: You must be able to use S3, ECR, ECS, EC2/Auto Scaling, ALB, CloudWatch, Budgets/Cost Explorer
+- Region: set your default region to ap-south-1
+
+```bash
+aws configure set default.region ap-south-1
+aws sts get-caller-identity
+```
+- Docker -> ECR login
+
+```bash
+aws ecr get-login-password --region ap-south-1 \
+  | docker login --username AWS --password-stdin <ACCOUNT_ID>.dkr.ecr.ap-south-1.amazonaws.com
+```
+
+### “Verify everything” checklist
+
+- [AWS CLI: aws sts get-caller-identity prints your Account + ARN](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html?utm_source=chatgpt.com)
+- [Docker: docker run --rm hello-world prints the hello message](https://docs.docker.com/desktop/?utm_source=chatgpt.com)
+- [Java & JMeter: java -version and jmeter -v both work](https://jmeter.apache.org/changes.html?utm_source=chatgpt.com)
+- [Browser access: You can reach AWS Console and navigate to S3/ECS/EC2/ALB/Billing pages.](https://aws.amazon.com/console/)
 
 ---
 
