@@ -1,0 +1,22 @@
+{
+    "Budget": {
+      "BudgetName": "DS252-Lab-2025-09-17",
+      "BudgetLimit": { "Amount": "5.00", "Unit": "USD" },
+      "CostFilters": {
+        "TagKeyValue": [
+          "Course$DS252",
+          "LabSession$2025-09-17-Session3-<TEAM_ID>"
+        ]
+      },
+      "CostTypes": { "IncludeDiscount": true, "IncludeRefund": false, "IncludeCredit": false, "UseAmortized": true },
+      "TimeUnit": "MONTHLY",
+      "BudgetType": "COST"
+    },
+    "NotificationsWithSubscribers": [
+      {
+        "Notification": { "NotificationType": "ACTUAL", "ComparisonOperator": "GREATER_THAN", "Threshold": 80, "ThresholdType": "PERCENTAGE" },
+        "Subscribers": [ { "Address": "<YOUR_EMAIL>", "SubscriptionType": "EMAIL" } ]
+      }
+    ]
+  }
+  

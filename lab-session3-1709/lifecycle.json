@@ -1,0 +1,15 @@
+{
+    "Rules": [
+      {
+        "ID": "prod-noncurrent-to-IA-then-expire",
+        "Status": "Enabled",
+        "Filter": { "Prefix": "site/prod/" },
+        "NoncurrentVersionTransitions": [
+          { "NoncurrentDays": 30, "StorageClass": "STANDARD_IA" }
+        ],
+        "NoncurrentVersionExpiration": { "NoncurrentDays": 90 },
+        "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 7 }
+      }
+    ]
+  }
+  

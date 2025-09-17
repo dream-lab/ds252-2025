@@ -1,0 +1,30 @@
+{
+    "family": "ds252-flask",
+    "networkMode": "awsvpc",
+    "executionRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/ecsTaskExecutionRole",
+    "taskRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/ecsTaskRoleDs252",
+    "cpu": "256",
+    "memory": "512",
+    "requiresCompatibilities": ["EC2"],
+    "containerDefinitions": [
+      {
+        "name": "flask",
+        "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/ds252-flask:latest",
+        "portMappings": [{ "containerPort": 5000, "protocol": "tcp" }],
+        "environment": [
+          { "name": "S3_BUCKET", "value": "<YOUR_S3_BUCKET>" },
+          { "name": "AWS_REGION", "value": "<REGION>" }
+        ],
+        "logConfiguration": {
+          "logDriver": "awslogs",
+          "options": {
+            "awslogs-group": "/ecs/ds252-flask",
+            "awslogs-region": "<REGION>",
+            "awslogs-stream-prefix": "ecs"
+          }
+        },
+        "essential": true
+      }
+    ]
+  }
+  
