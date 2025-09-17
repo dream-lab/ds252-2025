@@ -36,10 +36,12 @@ This lab extends your previous Flask-on-EC2 work into a production-style path wi
 - Apache **JMeter 5.6+** (install script provided below)
 
 ### Pre-Lab Reading (skim)
-- S3 **Versioning**: “current vs noncurrent version”, delete markers  
-- S3 **Lifecycle**: transitions (Standard, Intelligent-Tiering, IA, Glacier* tiers) and expirations  
-- ECS **Service Auto Scaling**: target tracking on CPU, scheduled actions  
-- ALB basics: listeners, target groups, health checks
+- [S3 Versioning](#https://docs.aws.amazon.com/AmazonS3/latest/userguide/Versioning.html?utm_source=chatgpt.com)
+- [S3 Lifecycle](#https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lifecycle-mgmt.html?utm_source=chatgpt.com)
+- [ECS Service Autoscaling](#https://docs.aws.amazon.com/AmazonECS/latest/developerguide/service-autoscaling-targettracking.html?utm_source=chatgpt.com)
+- [ALB Target Groups](#https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-target-groups.html?utm_source=chatgpt.com)
+- [AWS Budgets](#https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-create.html?utm_source=chatgpt.com)
+- [JMeter](#https://jmeter.apache.org/?utm_source=chatgpt.com)
 
 ---
 
