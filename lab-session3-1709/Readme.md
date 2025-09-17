@@ -46,7 +46,7 @@ This lab extends your previous Flask-on-EC2 work into a production-style path wi
 
 JMeter is Java-based. Install a supported OpenJDK first, then JMeter.
 
-**Linux (Ubuntu/Debian)**
+**[Linux (Ubuntu/Debian)](https://downloads.apache.org/jmeter/binaries/)**
 
 ```bash
 # Java
@@ -66,7 +66,7 @@ java -version
 jmeter -v
 ```
 
-**Windows WSL**
+**[Windows WSL](https://mati-qa.medium.com/jmeter-in-wsl-how-to-start-simple-use-case-b67b9063902b)**
 
 ```bash
 sudo apt-get update && sudo apt-get install -y openjdk-17-jre
