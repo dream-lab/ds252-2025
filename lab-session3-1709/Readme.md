@@ -292,8 +292,8 @@ jmeter -v
 **Push Prebuilt Image to ECR**
 
 ```bash
-# Load image locally
-docker load -i ds252-flask-prebuilt.tar
+# Build image locally
+docker build -t ${REPO}:latest .
 docker images | grep ds252-flask
 
 # Create ECR repo (once)
@@ -309,143 +309,144 @@ docker push <ACCOUNT_ID>.dkr.ecr.$AWS_REGION.amazonaws.com/ds252-flask:latest
 
 **Create ECS(EC2) Cluster**
 
-CLI Method:
-```bash
-aws ecs create-cluster --cluster-name ds252-cluster
-```
-
-Console:
-- ECS -> Clusters -> Create -> EC2 Linux + Networking
-- Capacity/ASG: 2× t3.small across 2 AZs
-- Security Groups (SG):
-    - ALB SG: inbound 80 (from your IP or 0.0.0.0/0 for demo)
-    - Tasks SG: inbound 5000 from ALB SG only
-
-**Create ALB + Target Group**
-ALB (Application Load Balancer)
-- Scheme: Internet-facing
-- Subnets: two public subnets
-- SG: ALB SG allowing 80
-- Listener: HTTP :80 -> forward to target group
-
-Target Group
-- Target type: IP (for ECS awsvpc tasks)
-- Port: 5000
-- Health check: path /healthz, healthy=2, unhealthy=2, timeout=5s, interval=10s
-
-**IAM Roles (Execution + Task Role)**
-Execution Role (ecsTaskExecutionRole): lets ECS pull from ECR + write logs to CloudWatch
-Task Role (e.g., ecsTaskRoleDs252): grants S3 access to your bucket
-
-
-**Minimal S3 policy (attach to the task role; replace YOUR_BUCKET_NAME):**
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    { "Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME" },
-    { "Effect": "Allow", "Action": ["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:GetObjectVersion","s3:DeleteObjectVersion"], "Resource": "arn:aws:s3:::YOUR_BUCKET_NAME/*" }
-  ]
-}
-```
-
-**Register Task Definition**
-```json
-{
-  "family": "ds252-flask",
-  "networkMode": "awsvpc",
-  "executionRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/ecsTaskExecutionRole",
-  "taskRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/ecsTaskRoleDs252",
-  "cpu": "256",
-  "memory": "512",
-  "requiresCompatibilities": ["EC2"],
-  "containerDefinitions": [
-    {
-      "name": "flask",
-      "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/ds252-flask:latest",
-      "portMappings": [{ "containerPort": 5000, "protocol": "tcp" }],
-      "environment": [
-        { "name": "S3_BUCKET", "value": "<YOUR_S3_BUCKET>" },
-        { "name": "AWS_REGION", "value": "<REGION>" }
-      ],
-      "logConfiguration": {
-        "logDriver": "awslogs",
-        "options": {
-          "awslogs-group": "/ecs/ds252-flask",
-          "awslogs-region": "<REGION>",
-          "awslogs-stream-prefix": "ecs"
-        }
-      },
-      "essential": true
-    }
-  ]
-}
-```
-
-**Create Service + Autoscaling**
-
-CLI:
-```bash
-# Create service (attach to ALB target group)
-aws ecs create-service \
-  --cluster ds252-cluster \
-  --service-name ds252-flask-svc \
-  --task-definition ds252-flask \
-  --desired-count 1 \
-  --launch-type EC2 \
-  --network-configuration "awsvpcConfiguration={subnets=[subnet-AAAA,subnet-BBBB],securityGroups=[sg-tasks],assignPublicIp=ENABLED}" \
-  --load-balancers "targetGroupArn=arn:aws:elasticloadbalancing:<REGION>:<ACCOUNT_ID>:targetgroup/ds252-tg/XYZ,containerName=flask,containerPort=5000"
-
-# Register scalable target + target tracking (CPU 50%)
-aws application-autoscaling register-scalable-target \
-  --service-namespace ecs \
-  --resource-id service/ds252-cluster/ds252-flask-svc \
-  --scalable-dimension ecs:service:DesiredCount \
-  --min-capacity 1 --max-capacity 4
-
-cat > cpu50.json <<'JSON'
-{
-  "TargetValue": 50.0,
-  "PredefinedMetricSpecification": { "PredefinedMetricType": "ECSServiceAverageCPUUtilization" },
-  "ScaleOutCooldown": 60,
-  "ScaleInCooldown": 300
-}
-JSON
-
-aws application-autoscaling put-scaling-policy \
-  --service-namespace ecs \
-  --resource-id service/ds252-cluster/ds252-flask-svc \
-  --scalable-dimension ecs:service:DesiredCount \
-  --policy-name cpu50-target \
-  --policy-type TargetTrackingScaling \
-  --target-tracking-scaling-policy-configuration file://cpu50.json
-```
+Once the docker image is pushed to ECR, we will start setting up the cluster. For the cluster to work there are 4 primary steps that we generally need to follow:
+- Create a Target Group (for your tasks)
+    - A registry of where to send traffic—ECS tasks register their IP:port here, and the load balancer health-checks these targets to route only to healthy ones.
+- Create an Application Load Balancer (ALB)
+    - A public entry point that distributes HTTP traffic across tasks, does health checks, and provides a stable DNS name instead of hitting task IPs directly
+- Create the ECS cluster with capacity
+    - A logical pool of compute where ECS runs your tasks (either on your EC2 instances or on Fargate); services schedule and scale tasks inside this cluster.
+- Create the Task Definition
+    - The blueprint for a containerized app—image, CPU/memory, ports, env vars, roles, and logging—that ECS uses to launch each task.
+---
 
 Console:
 
-- Service type: EC2
-- Cluster: ds252-cluster
-- Task definition: ds252-flask
-- Desired tasks: 1 (we’ll temporarily set to 0 for cold-start test)
-- Networking: pick 2 subnets + Tasks SG
-- Load balancing: choose your ALB + Target Group (port 5000)
-- Service Auto Scaling:
-    - Target tracking metric: ECSServiceAverageCPUUtilization
-    - Target: 50%
-    - Min=1, Max=4
-    - Scale-out cooldown: 60–120s
-    - Scale-in cooldown: 180–300s
-    - (Optional) Scheduled action (predictive): set Desired=2 at a specific time
+**Create a Target Group**
 
+Why: The ALB needs a target; with awsvpc tasks, the target type must be IP so task ENIs can register.
+
+Console -> EC2 -> Target groups -> Create target group
+
+- Target type: IP addresses
+- Name: ds252-tg
+- Protocol/Port: HTTP / 5000
+- VPC: your VPC
+- Health checks: Protocol HTTP, Path /healthz, Healthy 2, Unhealthy 2, Interval 10s, Timeout 5s, Success codes 200
+- Create target group
+
+
+**Create an Application Load Balancer (ALB)**
+
+Why: Public endpoint, health checks, spreads load across tasks.
+
+Console -> EC2 -> Load balancers -> Create load balancer -> Application Load Balancer
+
+- Name: ds252-alb
+- Scheme: Internet-facing | IP type: IPv4
+- VPC: your VPC | Mappings: select two public subnets (different AZs)
+- Security groups: ALB SG (HTTP 80 from Internet)
+- Listeners: HTTP :80 → Forward to ds252-tg
+- Create load balancer
+
+After creation, open the ALB and note its DNS name (you’ll test with this and use it in JMeter).
+
+**Security Groups**
+
+Why: The ALB must accept HTTP on :80 from the Internet, and your ECS tasks must accept app traffic on :5000 only from the ALB. A self-reference lets tasks talk to each other (east-west) if needed.
+
+Console -> EC2 -> Security Groups -> Select security group
+
+- Inbound rules:
+    - HTTP | Port 80 | Source: 0.0.0.0/0 (IPv4)
+    - HTTP | Port 80 | Source: ::/0 (IPv6) (prevents IPv6 clients from hanging)
+    - Custom TCP | Port 5000 | Source: Security group = security_group_name
+
+
+**Create (or verify) the ECS (EC2) cluster with capacity**
+
+Why: The cluster is the pool of EC2 hosts where tasks run. The EC2 Linux + Networking wizard sets up an Auto Scaling Group for you.
+
+Console -> ECS -> Clusters -> Create -> EC2 Linux + Networking
+
+- Cluster name: ds252-cluster-<team>
+- Instance type: t3.small | Desired capacity: 2 (min 1, max 3–4)
+- AMI: Amazon ECS-optimized default | Key pair: optional
+- Instance role: select or create ecsInstanceRole
+- Networking:
+  - VPC: your VPC
+  - Subnets: the two public subnets
+- Auto-assign public IP: Enable (lab path so hosts/tasks can reach ECR/CloudWatch/S3)
+- Create
+
+**Create the Task Definition**
+
+Why: Defines how to run your container: image, ports, env vars, logging, and roles.
+
+Console -> ECS -> Task definitions -> Create new task definition
+
+- Launch type: EC2
+- Task family: ds252-flask
+- Task role: ecsTaskRoleDs252 (S3 access for your app)
+- Task execution role: ecsTaskExecutionRole (pull from ECR, logs)
+- Network mode: awsvpc (required for ALB + IP target type)
+- Task size: 0.25 vCPU and 0.5 GB (or 256 CPU / 512 MiB)
+- Add container:
+  - Name: flask
+  - Image: paste your ECR Image URI
+  - Port mappings: 5000/TCP
+  - Environment variables:
+    - S3_BUCKET = <your-bucket-name>
+    - AWS_REGION = <your-region>
+- Log configuration:
+  - Log driver: awslogs
+  - Log group: /ecs/ds252-flask (type a new name; will be created)
+  - Region: your region
+  - Stream prefix: ecs
+- Create task definition
+
+**Create the Service and attach it to the ALB**
+
+Why: Keeps the desired number of task copies running, registers them in the target group, and applies autoscaling.
+
+Console -> ECS -> Clusters -> your cluster -> Services -> Create
+
+- Compute options: EC2
+- Task definition: ds252-flask (latest revision)
+- Service name: ds252-flask-svc
+- Desired tasks: 1 (for a cold-start demo, you can start at 0 and increase to 1 while JMeter is running)
+- Networking:
+    - VPC: same VPC
+    - Subnets: the two public subnets
+    - Security group: Tasks SG (allows TCP 5000 from ALB SG)
+    - Auto-assign public IP: Enabled (lab path)
+- Load balancing:
+- Type: Application Load Balancer
+- Load balancer: ds252-alb
+- Listener: HTTP:80
+- Target group: ds252-tg
+- Container to load balance: flask:5000
+- Service Auto Scaling (Target tracking):
+  - Metric: ECSServiceAverageCPUUtilization
+  - Target value: 50%
+- Min tasks: 1, Max tasks: 4
+- Cooldowns: Scale-out 60–120s, Scale-in 180–300s
+- Create service
+
+---
 
 **JMeter Tests**
 
-**JMeter GUI setup**
+We will use JMeter to send requests to the backend service that is running on the cluster now. We will call the /hash endpoint - this endpoint takes a random string and returns a hash for it. Use the ```hash-load.jmx``` file to run jmeter tests with the following configs & commands:
 
-- Test Plan -> Thread Group
-    - HTTP Request Defaults: Protocol http (or https), Server <ALB-DNS>, Port 80 (or 443)
-    - HTTP Request: GET /work
-    - Scheduler: Enabled -> set Duration per test
+```bash
+jmeter -n -t hash-load.jmx \
+  -JSERVER=<ALB DNS NAME>.ap-south-1.elb.amazonaws.com \
+  -JPORT=80 -JPROTOCOL=http \
+  -JTHREADS=50 -JRAMP=10 -JDURATION=<DURATION OF THE RUN> \
+  -l results.jtl -e -o out-report
+```
+
 
 **Test 1 — Cold Start**
 
@@ -454,6 +455,15 @@ Console:
 - Start JMeter, then set Desired Tasks=1
 - Watch: ECS Tasks show PROVISIONING -> PENDING -> RUNNING; ALB HealthyHostCount 0 → 1; CPU rises after healthy
 
+```bash
+jmeter -n -t hash-load.jmx \
+  -JSERVER=<ALB DNS NAME>.ap-south-1.elb.amazonaws.com \
+  -JPORT=80 -JPROTOCOL=http \
+  -JTHREADS=50 -JRAMP=10 -JDURATION=180 \
+  -l results_cs.jtl -e -o out-report-cs
+```
+
+
 **Test 2 — Reactive Scale-Out**
 
 - Ensure Desired=1 initially
@@ -461,10 +471,28 @@ Console:
 - Watch: ECS Service CPU > target -> Running tasks goes 1 -> 2 (-> 3)
 - If no scale out: increase users to 80–120 or extend duration
 
+```bash
+jmeter -n -t hash-load.jmx \
+  -JSERVER=<ALB DNS NAME>.ap-south-1.elb.amazonaws.com \
+  -JPORT=80 -JPROTOCOL=http \
+  -JTHREADS=50 -JRAMP=10 -JDURATION=300 \
+  -l results_so.jtl -e -o out-report-so
+```
+
+
 **Test 3 — Stable State**
 
 - Thread Group: 15–20 users, 30s ramp, 4–5 min duration
 - Watch: CPU stays below target; Running tasks remain 1
+
+```bash
+jmeter -n -t hash-load.jmx \
+  -JSERVER=<ALB DNS NAME>.ap-south-1.elb.amazonaws.com \
+  -JPORT=80 -JPROTOCOL=http \
+  -JTHREADS=50 -JRAMP=10 -JDURATION=300 \
+  -l results_ss.jtl -e -o out-report-ss
+```
+
 
 
 ## Activity 3 — FinOps: Tagging, Budget
