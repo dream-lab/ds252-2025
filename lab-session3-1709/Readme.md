@@ -202,7 +202,7 @@ aws s3api list-object-versions --bucket $BUCKET --prefix site/prod/note.txt
 ```bash
 aws s3api copy-object \
   --bucket $BUCKET \
-  --copy-source $BUCKET/site/prod/note.txt?versionId=<OLD_VERSION_ID> \
+  --copy-source "$BUCKET/site/prod/note.txt?versionId=<OLD_VERSION_ID>" \
   --key site/prod/note.txt
 ```
 **Lifecycle Rules**
