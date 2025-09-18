@@ -1,192 +1,148 @@
 import os
 import time
-import secrets
-import logging
-from typing import Optional, Dict
+import hashlib
+from datetime import datetime, timezone
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, Response, jsonify
 import boto3
 from botocore.exceptions import ClientError
 
-APP_NAME = os.getenv("APP_NAME", "ds252-flask")
-S3_BUCKET = os.getenv("S3_BUCKET")  # REQUIRED
-AWS_REGION = os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
-PORT = int(os.getenv("PORT", "5000"))
+APP_NAME = "ds252-flask"
+REGION = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+BUCKET = os.environ.get("S3_BUCKET")
 
-if not S3_BUCKET:
-    raise RuntimeError("Environment variable S3_BUCKET is required.")
+# Fixed hashing workload (env knobs only; NOT per-request)
+HASH_ROUNDS = int(os.environ.get("MICRO_HASH_ROUNDS", "50000"))  # total sha256 iterations
 
-s3 = boto3.client("s3", region_name=AWS_REGION)
-
-logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO"),
-    format="%(asctime)s %(levelname)s %(name)s - %(message)s",
-)
-log = logging.getLogger(APP_NAME)
-
+s3 = boto3.client("s3", region_name=REGION) if REGION else boto3.client("s3")
 app = Flask(__name__)
 
-def put_bytes(key: str, data: bytes, content_type: str = "application/octet-stream",
-              metadata: Optional[Dict[str, str]] = None) -> Dict:
-    extra = {"ContentType": content_type}
-    if metadata:
-        extra["Metadata"] = metadata
-    resp = s3.put_object(Bucket=S3_BUCKET, Key=key, Body=data, **extra)
-    return {"bucket": S3_BUCKET, "key": key, "versionId": resp.get("VersionId"), "etag": resp.get("ETag")}
+def _json_error(message: str, status: int = 400):
+    return jsonify({"ok": False, "error": message}), status
 
-def get_bytes(key: str, version_id: Optional[str] = None) -> Dict:
-    args = {"Bucket": S3_BUCKET, "Key": key}
-    if version_id:
-        args["VersionId"] = version_id
-    obj = s3.get_object(**args)
-    body = obj["Body"].read()
-    return {
-        "bucket": S3_BUCKET,
-        "key": key,
-        "versionId": obj.get("VersionId"),
-        "etag": obj.get("ETag"),
-        "contentType": obj.get("ContentType", "application/octet-stream"),
-        "contentLength": len(body),
-        "data": body,
-        "lastModified": obj.get("LastModified").isoformat() if obj.get("LastModified") else None,
-        "metadata": obj.get("Metadata", {}),
-    }
+def _utc_now_iso():
+    return datetime.now(timezone.utc).isoformat()
 
 @app.get("/healthz")
 def healthz():
-    return jsonify({"ok": True, "service": APP_NAME, "bucket": S3_BUCKET, "region": AWS_REGION})
+    return jsonify({"ok": True, "app": APP_NAME, "time_utc": _utc_now_iso(),
+                    "bucket": BUCKET, "region": REGION, "pid": os.getpid()})
+
+@app.get("/info")
+def info():
+    return jsonify({"app": APP_NAME, "env": {
+        "AWS_REGION": REGION, "S3_BUCKET": BUCKET,
+        "MICRO_HASH_ROUNDS": HASH_ROUNDS
+    }})
+
+@app.route("/hash", methods=["GET", "POST"])
+def hash_endpoint():
+    """
+    Hashes a client-provided string with fixed CPU work:
+      - Input string in 'data' (form field, JSON body, or query param).
+      - Computes sha256(data), then repeats hashing HASH_ROUNDS-1 times.
+    No time/size controls in the request; tune globally via MICRO_HASH_ROUNDS.
+    """
+    # Accept JSON, form, or query param
+    if request.method == "POST":
+        if request.is_json:
+            payload = request.get_json(silent=True) or {}
+            data_val = payload.get("data")
+        else:
+            data_val = request.form.get("data")
+    else:
+        data_val = request.args.get("data")
+
+    if data_val is None:
+        return _json_error("Missing 'data' (provide as form field, JSON {data:...}, or ?data=)")
+
+    t0 = time.perf_counter_ns()
+    d = hashlib.sha256(data_val.encode("utf-8")).digest()
+    for _ in range(max(1, HASH_ROUNDS) - 1):
+        d = hashlib.sha256(d).digest()
+    elapsed_ms = (time.perf_counter_ns() - t0) / 1e6
+
+    return jsonify({
+        "ok": True,
+        "endpoint": "/hash",
+        "started_utc": _utc_now_iso(),
+        "input_len": len(data_val),
+        "rounds": HASH_ROUNDS,
+        "digest_hex": d.hex(),
+        "timings_ms": {"total_ms": round(elapsed_ms, 3)}
+    })
+
+@app.get("/work")
+def work():
+    if not BUCKET:
+        return _json_error("S3_BUCKET env var not set on server", 500)
+    mode = request.args.get("mode", "").lower()
+    key = request.args.get("key")
+    if not key:
+        return _json_error("Missing 'key'")
+    try:
+        if mode == "write":
+            size_kb = int(request.args.get("size_kb", "64"))
+            payload = os.urandom(size_kb * 1024)
+            put = s3.put_object(Bucket=BUCKET, Key=key, Body=payload)
+            return jsonify({"ok": True, "action": "write", "bucket": BUCKET, "key": key,
+                            "size_kb": size_kb, "etag": put.get("ETag"), "version_id": put.get("VersionId")})
+        elif mode == "read":
+            obj = s3.get_object(Bucket=BUCKET, Key=key)
+            data = obj["Body"].read()
+            return jsonify({"ok": True, "action": "read", "bucket": BUCKET, "key": key,
+                            "bytes": len(data), "preview_first_128_bytes_hex": data[:128].hex(),
+                            "version_id": obj.get("VersionId")})
+        else:
+            return _json_error("Invalid mode. Use mode=write or mode=read.")
+    except ClientError as e:
+        err = e.response.get("Error", {})
+        return _json_error(f"S3 error: {err.get('Code')} - {err.get('Message')}", 502 if mode == "write" else 404)
+
+@app.route("/text", methods=["POST", "GET"])
+def text():
+    if not BUCKET:
+        return _json_error("S3_BUCKET env var not set on server", 500)
+    if request.method == "POST":
+        if request.is_json:
+            payload = request.get_json(silent=True) or {}
+            key = payload.get("key"); text_value = payload.get("text", "")
+        else:
+            key = request.form.get("key"); text_value = request.form.get("text", "")
+        if not key:
+            return _json_error("Missing 'key'")
+        try:
+            put = s3.put_object(Bucket=BUCKET, Key=key,
+                                Body=text_value.encode("utf-8"),
+                                ContentType="text/plain; charset=utf-8")
+            return jsonify({"ok": True, "action": "write_text", "bucket": BUCKET, "key": key,
+                            "bytes": len(text_value.encode('utf-8')),
+                            "etag": put.get("ETag"), "version_id": put.get("VersionId")})
+        except ClientError as e:
+            err = e.response.get("Error", {})
+            return _json_error(f"S3 error: {err.get('Code')} - {err.get('Message')}", 502)
+    key = request.args.get("key")
+    if not key:
+        return _json_error("Missing 'key'")
+    try:
+        obj = s3.get_object(Bucket=BUCKET, Key=key)
+        return Response(obj["Body"].read(), status=200, mimetype="text/plain; charset=utf-8")
+    except ClientError as e:
+        err = e.response.get("Error", {})
+        return _json_error(f"S3 error: {err.get('Code')} - {err.get('Message')}", 404)
 
 @app.get("/")
 def root():
     return jsonify({
-        "message": "DS252 Flask + S3",
+        "message": "OK",
         "endpoints": {
-            "health": "/healthz",
-            "write text": "POST /text  {key, text, metadata?}",
-            "read text": "GET /text/<key>?versionId=",
-            "list": "GET /list?prefix=",
-            "list versions": "GET /list-versions?prefix=",
-            "delete": "DELETE /object/<key>?versionId=",
-            "work (load test)": "GET /work?mode=read|write|mixed&size_kb=128&key=lab/test.bin"
+            "/healthz": "GET health",
+            "/hash": "POST/GET hash 'data' with fixed rounds; returns digest & latency",
+            "/work": "GET S3 I/O: mode=write/read, key=..., size_kb=...",
+            "/text": "POST {key,text} or GET ?key=..."
         }
     })
 
-@app.post("/text")
-def write_text():
-    body = request.get_json(force=True, silent=False)
-    key = body.get("key")
-    text = body.get("text", "")
-    metadata = body.get("metadata")
-    if not key:
-        return jsonify({"error": "key is required"}), 400
-    try:
-        info = put_bytes(key, text.encode("utf-8"), content_type="text/plain; charset=utf-8", metadata=metadata)
-        return jsonify({"ok": True, **info})
-    except ClientError as e:
-        log.exception("S3 put failed")
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-@app.get("/text/<path:key>")
-def read_text(key: str):
-    version_id = request.args.get("versionId")
-    try:
-        info = get_bytes(key, version_id=version_id)
-        data = info.pop("data")
-        try:
-            txt = data.decode("utf-8")
-            info["text"] = txt
-        except UnicodeDecodeError:
-            info["note"] = "binary content not returned as text"
-        return jsonify({"ok": True, **info})
-    except ClientError as e:
-        return jsonify({"ok": False, "error": str(e)}), 404
-
-@app.get("/list")
-def list_objects():
-    prefix = request.args.get("prefix") or ""
-    try:
-        resp = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix, MaxKeys=1000)
-        items = []
-        for c in resp.get("Contents", []):
-            items.append({"key": c["Key"], "size": c["Size"], "lastModified": c["LastModified"].isoformat()})
-        return jsonify({"ok": True, "bucket": S3_BUCKET, "prefix": prefix, "items": items})
-    except ClientError as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-@app.get("/list-versions")
-def list_versions():
-    prefix = request.args.get("prefix") or ""
-    try:
-        resp = s3.list_object_versions(Bucket=S3_BUCKET, Prefix=prefix, MaxKeys=200)
-        items = []
-        for v in resp.get("Versions", []):
-            items.append({
-                "key": v["Key"], "versionId": v["VersionId"], "isLatest": v["IsLatest"],
-                "size": v["Size"], "lastModified": v["LastModified"].isoformat()
-            })
-        for d in resp.get("DeleteMarkers", []):
-            items.append({
-                "key": d["Key"], "versionId": d["VersionId"], "isDeleteMarker": True,
-                "isLatest": d["IsLatest"], "lastModified": d["LastModified"].isoformat()
-            })
-        return jsonify({"ok": True, "bucket": S3_BUCKET, "prefix": prefix, "versions": items})
-    except ClientError as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-@app.delete("/object/<path:key>")
-def delete_object(key: str):
-    version_id = request.args.get("versionId")
-    try:
-        args = {"Bucket": S3_BUCKET, "Key": key}
-        if version_id:
-            args["VersionId"] = version_id
-        resp = s3.delete_object(**args)
-        return jsonify({"ok": True, "key": key, "versionId": resp.get("VersionId")})
-    except ClientError as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-@app.get("/work")
-def work():
-    """
-    JMeter-friendly endpoint.
-      mode: read | write | mixed (default mixed)
-      size_kb: int (default 128, clamps 1..10240)
-      key: base key (default lab/test.bin)
-    """
-    mode = (request.args.get("mode") or "mixed").lower()
-    try:
-        size_kb = int(request.args.get("size_kb", "128"))
-    except ValueError:
-        size_kb = 128
-    size_kb = max(1, min(size_kb, 10240))
-    key = request.args.get("key", "lab/test.bin")
-
-    result = {"ok": True, "mode": mode, "size_kb": size_kb, "bucket": S3_BUCKET, "key": key}
-
-    try:
-        if mode in ("write", "mixed"):
-            data = secrets.token_bytes(size_kb * 1024)
-            versioned_key = f"{key}.{int(time.time()*1000)}"
-            t1 = time.perf_counter()
-            info_w = put_bytes(versioned_key, data)
-            result["write"] = {"key": versioned_key, "versionId": info_w.get("versionId")}
-            result["t_write_ms"] = int((time.perf_counter() - t1) * 1000)
-
-        if mode in ("read", "mixed"):
-            read_key = result["write"]["key"] if mode == "mixed" and "write" in result else key
-            t2 = time.perf_counter()
-            try:
-                info_r = get_bytes(read_key)
-                info_r.pop("data", None)
-                result["read"] = {"key": read_key, "versionId": info_r.get("versionId"), "size": info_r.get("contentLength")}
-            except ClientError as e:
-                result["read_error"] = str(e)
-            result["t_read_ms"] = int((time.perf_counter() - t2) * 1000)
-
-        return jsonify(result)
-    except ClientError as e:
-        log.exception("S3 op failed")
-        return jsonify({"ok": False, "error": str(e)}), 500
-
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=PORT)
+    # Local dev only. In containers, run: gunicorn -w 1 -b 0.0.0.0:5000 app:app
+    app.run(host="0.0.0.0", port=5000, debug=False)
