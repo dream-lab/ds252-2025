@@ -129,25 +129,28 @@ We reuse the Flask app from the previous lab, extended to talk to S3. It expects
 
 **Endpoints**
 
-- `GET /healthz`  
-  Fast 200 for ALB health checks (verifies env + basic readiness).
+- GET /healthz -> Liveness + metadata (ok, app, time_utc, bucket, region, pid).
+- GET|POST /hash -> CPU load: accepts a data string (query for GET, or form/JSON for POST), computes sha256(data) and re-hashes it for a fixed number of rounds; returns JSON with digest_hex and timings_ms.total_ms.
+- POST|GET /text -> Store or fetch text in S3:
+- POST (form or JSON) {key, text} -> returns {ok, etag, version_id, bytes}
+- GET ?key=<path> → returns raw text (Content-Type text/plain)
 
-- **S3 Object I/O (for versioning demos)**
-  - `POST /text`  
-    Body: `{"key":"path/file.txt","text":"Hello","metadata":{"author":"alice"}}`  
-    Writes to `s3://$S3_BUCKET/<key>`. If versioning is ON, creates a **new version**.
-  - `GET /text/<key>?versionId=`  
-    Reads the latest version or a specific `versionId`.
-  - `GET /list?prefix=`  
-    Lists objects under a prefix.
-  - `GET /list-versions?prefix=`  
-    Lists **versions** and **delete markers** beneath a prefix.
-  - `DELETE /object/<key>?versionId=`  
-    Deletes a **specific** version (if provided), otherwise sets a **delete marker**.
+Quick Test:
 
-- **Load endpoint (for JMeter)**
-  - `GET /work?mode=read|write|mixed&size_kb=128&key=lab/test.bin`  
-    Performs small S3 reads/writes per request (predictable CPU + I/O) to drive **ECS CPU target-tracking autoscaling**.
+```bash
+BASE="http://<ALB-DNS>"
+
+# Health
+curl -s "$BASE/healthz" | jq .
+
+# Hash (POST form and GET)
+curl -s -X POST "$BASE/hash" -d "data=hello-ds252" | jq .
+curl -s "$BASE/hash?data=test123" | jq .
+curl -s -X POST "$BASE/text" -H "Content-Type: application/json" \
+  -d '{"key":"lab/note.txt","text":"hello s3"}' | jq .
+curl -s "$BASE/text?key=lab/note.txt"
+
+```
 
 ---
 
