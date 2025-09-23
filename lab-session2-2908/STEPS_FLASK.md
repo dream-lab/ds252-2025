@@ -8,7 +8,7 @@ sudo apt update
 # Install Python development tools
 sudo apt install -y python3-dev python3-pip
 
-sudo apt install python3.10-venv
+sudo apt install -y python3.10-venv
 python3 -m venv flask-env
 
 # Activate the environment
