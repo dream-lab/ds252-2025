@@ -32,7 +32,7 @@ pip3 install aws-sam-cli
 ```bash
 jmeter -v
 ```
-
+# Plan for the Lab Session
 
 Part 1. **Provision baseline infrastructure (Using Console)**  
    - Create S3 bucket for storing images.  
