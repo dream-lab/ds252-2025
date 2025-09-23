@@ -85,35 +85,8 @@ flowchart LR
     G--> I
     H--> I
 
-
-# Prerequisites
-
-## AWS Account
-- Active AWS account with billing enabled
-
-## AWS SAM CLI Installation
-
-### macOS
-```bash
-brew tap aws/tap
-brew install aws-sam-cli
 ```
 
-### Ubuntu/Debian
-```bash
-sudo apt-get update
-sudo apt-get install unzip python3-pip
-pip3 install aws-sam-cli
-```
 
-## Apache JMeter
-1. Download from: https://jmeter.apache.org/
-2. Unzip the downloaded file
-3. Add the `bin/` directory to your system PATH
-4. Verify installation:
-```bash
-jmeter -v
-```
-```
 
 
