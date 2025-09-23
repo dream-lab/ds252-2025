@@ -73,20 +73,24 @@ This lab demonstrates two serverless workflows on AWS to process images and meas
 
 ---
 
-## Step Function — Mermaid Diagram
+## Step Function
 
-```mermaid
+``` mermaid
+
 flowchart LR
-   A[Fetch metadata from DynamoDB] --> B[FetchImage (S3)]
-   B --> C[Grayscale]
-   C --> D[Flip]
-   D --> E[Rotate]
-   E --> F[Resize]
-   F --> G{Parallel Inference}
-   G --> H1[AlexNet]
-   G --> H2[ResNet]
-   G --> H3[MobileNet]
-   H1 --> I[Aggregator]
-   H2 --> I
-   H3 --> I
-   I --> J[Update DynamoDB with labels]
+   A[fetchImage] --> B[Grayscale]
+   B --> C[Flip]
+   C --> D[Rotate]
+   D --> E[Resize]
+   E --> F[AlexNet]
+    E --> G[ResNet]
+    E --> H[MobileNet]
+    F --> I[Aggregator]
+    G--> I
+    H--> I
+
+```
+
+
+
+
