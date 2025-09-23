@@ -8,13 +8,6 @@ This lab demonstrates two serverless workflows on AWS to process images and meas
 
 ## AWS Account
 - Active AWS account with billing enabled
-- IAM user/role with permissions for:
-  - S3
-  - Lambda
-  - DynamoDB
-  - Step Functions
-  - CloudWatch
-  - IAM role creation
 
 ## AWS SAM CLI Installation
 
