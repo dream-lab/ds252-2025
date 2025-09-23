@@ -126,4 +126,3 @@ pip3 install aws-sam-cli
 ```bash
 jmeter -v
 ```
-```
