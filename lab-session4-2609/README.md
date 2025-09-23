@@ -4,7 +4,6 @@ This lab demonstrates two serverless workflows on AWS to process images and meas
 
 ---
 
-## Plan
 
 Part 1. **Provision baseline infrastructure (Using Console)**  
    - Create S3 bucket for storing images.  
@@ -90,7 +89,7 @@ flowchart LR
 
 
 
-```markdown
+
 # Prerequisites
 
 ## AWS Account
