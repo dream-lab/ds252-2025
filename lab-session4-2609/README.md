@@ -6,11 +6,11 @@ This lab demonstrates two serverless workflows on AWS to process images and meas
 
 ## Plan
 
-1. **Provision baseline infrastructure**  
+Part 1. **Provision baseline infrastructure (Using Console)**  
    - Create S3 bucket for storing images.  
    - Create DynamoDB table for storing metadata.  
 
-2. **Implement Workflows**  
+Part 2. **Deploy Workflows (CLI)**  
    - **Workflow 1 (Lambda ingestion):**  
      - Lambda fetches image from URL.  
      - Uploads image to S3.  
@@ -22,29 +22,26 @@ This lab demonstrates two serverless workflows on AWS to process images and meas
      - Executes three inference Lambdas in parallel (AlexNet, ResNet, MobileNet).  
      - Aggregates results.  
      - Updates metadata with labels in DynamoDB.  
+  
 
-3. **Deploy Step Function**  
-   - Define workflow with retries, timeouts, and error handling.  
-   - Ensure all Lambdas and IAM roles are wired correctly.  
-
-4. **Benchmark Workflows**  
+Part 3. **Benchmark and Visualize Workflows (CLI and console)**  
    - Use [Apache JMeter](https://jmeter.apache.org/) to invoke:  
      - Workflow 1: Lambda ingestion.  
      - Workflow 2: Step Functions classification pipeline.  
    - Load profile: **1 RPS for 180 seconds (3 minutes)**.  
 
-5. **Collect Logs & Metrics**  
-   - CloudWatch Logs from each Lambda.  
-   - CloudWatch Metrics: Duration, InitDuration (cold starts), Invocations, Errors, Throttles.  
+   **Collect Logs & Metrics**  
+      - CloudWatch Logs from each Lambda.  
+      - CloudWatch Metrics: Duration, InitDuration (cold starts), Invocations, Errors, Throttles.  
 
-6. **Analysis & Visualization**  
-   - Export CloudWatch logs.  
-   - Parse logs with Python (Pandas).  
-   - Plot timelines using Matplotlib:  
-     - Cold starts vs warm starts.  
-     - End-to-end latencies.  
-     - Throughput over time.  
-   - Estimate cost from Lambda, S3, DynamoDB usage.  
+   **Analysis & Visualization**  
+      - Export CloudWatch logs.  
+      - Parse logs with Python (Pandas).  
+      - Plot timelines using Matplotlib:  
+      - Cold starts vs warm starts.  
+      - End-to-end latencies.  
+      - Throughput over time.  
+      - Estimate cost from Lambda, S3, DynamoDB usage.  
 
 ---
 
@@ -68,8 +65,7 @@ This lab demonstrates two serverless workflows on AWS to process images and meas
    - AlexNet  
    - ResNet  
    - MobileNet  
-5. **Aggregator Lambda**: consolidates results.  
-6. **Update Lambda**: writes labels and status back into DynamoDB.  
+5. **Aggregator and Update Dynamo**: consolidates results &  writes labels and status back into DynamoDB.
 
 ---
 
@@ -85,12 +81,39 @@ flowchart LR
    E --> F[AlexNet]
     E --> G[ResNet]
     E --> H[MobileNet]
-    F --> I[Aggregator]
+    F --> I[PushToDynamo]
     G--> I
     H--> I
 
+
+# Prerequisites
+
+## AWS Account
+- Active AWS account with billing enabled
+
+## AWS SAM CLI Installation
+
+### macOS
+```bash
+brew tap aws/tap
+brew install aws-sam-cli
 ```
 
+### Ubuntu/Debian
+```bash
+sudo apt-get update
+sudo apt-get install unzip python3-pip
+pip3 install aws-sam-cli
+```
 
+## Apache JMeter
+1. Download from: https://jmeter.apache.org/
+2. Unzip the downloaded file
+3. Add the `bin/` directory to your system PATH
+4. Verify installation:
+```bash
+jmeter -v
+
+```
 
 
