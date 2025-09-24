@@ -1,3 +1,9 @@
 flask-env/
 LabKey.pem
 client.html
+.aws-sam
+.DS_Store
+samconfig.toml
+test-stepfunctions-payload.json
+load_test_results.json
+test-payload.json

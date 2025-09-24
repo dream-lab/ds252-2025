@@ -1,0 +1,210 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'Serverless Workflow Lab - Image Classification Pipeline (Workflow 2)'
+
+Parameters:
+  S3BucketName:
+    Type: String
+    Description: Name of the S3 bucket for storing images
+    Default: serverless-lab-images-240925
+  
+  DynamoDBTableName:
+    Type: String
+    Description: Name of the DynamoDB table for storing metadata
+    Default: image-metadata
+
+Globals:
+  Function:
+    Timeout: 300  # 5 minutes for ML processing
+    Runtime: python3.9
+    Environment:
+      Variables:
+        S3_BUCKET_NAME: !Ref S3BucketName
+        DYNAMODB_TABLE_NAME: !Ref DynamoDBTableName
+
+Resources:
+  # Lambda Functions
+  FetchImageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-fetch-image"
+      CodeUri: fetch-image/src/
+      Handler: lambda_function.lambda_handler
+      Description: 'Fetches image from S3 using metadata from DynamoDB'
+      MemorySize: 512
+      Timeout: 60
+      
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref S3BucketName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DynamoDBTableName
+
+  PreprocessingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-preprocessing"
+      CodeUri: preprocessing/src/
+      Handler: lambda_function.lambda_handler
+      Description: 'Image preprocessing: grayscale, flip, rotate, resize'
+      MemorySize: 1024
+      Timeout: 180
+      
+      # No additional policies needed - only processes image data in memory
+
+  MLInferenceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-ml-inference"
+      CodeUri: ml-inference/src/
+      Handler: lambda_function.lambda_handler
+      Description: 'ML inference for AlexNet, ResNet, MobileNet models'
+      MemorySize: 2048  # More memory for ML processing
+      Timeout: 300
+      
+      # No additional policies needed - only processes image data in memory
+
+  AggregatorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-aggregator"
+      CodeUri: aggregator/src/
+      Handler: lambda_function.lambda_handler
+      Description: 'Aggregates ML results and updates DynamoDB'
+      MemorySize: 512
+      Timeout: 60
+      
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DynamoDBTableName
+
+  # Step Functions State Machine
+  ImageClassificationStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: !Sub "${AWS::StackName}-classification-pipeline"
+      DefinitionUri: statemachine.json
+      DefinitionSubstitutions:
+        FetchImageFunctionArn: !GetAtt FetchImageFunction.Arn
+        PreprocessingFunctionArn: !GetAtt PreprocessingFunction.Arn
+        MLInferenceFunctionArn: !GetAtt MLInferenceFunction.Arn
+        AggregatorFunctionArn: !GetAtt AggregatorFunction.Arn
+      
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref FetchImageFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref PreprocessingFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref MLInferenceFunction
+        - LambdaInvokePolicy:
+            FunctionName: !Ref AggregatorFunction
+      
+      # Optional: API Gateway integration for HTTP trigger
+      Events:
+        ClassificationApi:
+          Type: Api
+          Properties:
+            Path: /classify
+            Method: post
+            RestApiId: !Ref ClassificationApi
+
+  # API Gateway for HTTP invocation of Step Functions
+  ClassificationApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: prod
+      Cors:
+        AllowMethods: "'POST, OPTIONS'"
+        AllowHeaders: "'Content-Type, X-Amz-Date, Authorization, X-Api-Key, X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+
+  # IAM Role for API Gateway to invoke Step Functions
+  ApiGatewayStepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: apigateway.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StepFunctionsExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                Resource: !Ref ImageClassificationStateMachine
+
+Outputs:
+  # Lambda Function ARNs
+  FetchImageFunctionArn:
+    Description: "Fetch Image Lambda Function ARN"
+    Value: !GetAtt FetchImageFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-FetchImageFunction-Arn"
+
+  PreprocessingFunctionArn:
+    Description: "Preprocessing Lambda Function ARN"
+    Value: !GetAtt PreprocessingFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-PreprocessingFunction-Arn"
+
+  MLInferenceFunctionArn:
+    Description: "ML Inference Lambda Function ARN"
+    Value: !GetAtt MLInferenceFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-MLInferenceFunction-Arn"
+
+  AggregatorFunctionArn:
+    Description: "Aggregator Lambda Function ARN"
+    Value: !GetAtt AggregatorFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-AggregatorFunction-Arn"
+
+  # Step Functions
+  StateMachineArn:
+    Description: "Image Classification State Machine ARN"
+    Value: !Ref ImageClassificationStateMachine
+    Export:
+      Name: !Sub "${AWS::StackName}-StateMachine-Arn"
+
+  StateMachineName:
+    Description: "Image Classification State Machine Name"
+    Value: !GetAtt ImageClassificationStateMachine.Name
+    Export:
+      Name: !Sub "${AWS::StackName}-StateMachine-Name"
+
+  # API Gateway
+  ApiGatewayEndpoint:
+    Description: "API Gateway endpoint URL for Step Functions"
+    Value: !Sub "https://${ClassificationApi}.execute-api.${AWS::Region}.amazonaws.com/prod/classify"
+    Export:
+      Name: !Sub "${AWS::StackName}-ApiEndpoint"
+
+  # Resource References
+  S3BucketName:
+    Description: "S3 Bucket Name"
+    Value: !Ref S3BucketName
+    Export:
+      Name: !Sub "${AWS::StackName}-S3Bucket"
+
+  DynamoDBTableName:
+    Description: "DynamoDB Table Name"
+    Value: !Ref DynamoDBTableName
+    Export:
+      Name: !Sub "${AWS::StackName}-DynamoTable"
+
+  # Usage Instructions
+  UsageInstructions:
+    Description: "How to invoke the classification pipeline"
+    Value: !Sub |
+      Invoke via AWS CLI:
+      aws stepfunctions start-execution --state-machine-arn ${ImageClassificationStateMachine} --input '{"image_id":"your-image-id-here"}' --region ${AWS::Region}
+      
+      Or via API Gateway:
+      curl -X POST https://${ClassificationApi}.execute-api.${AWS::Region}.amazonaws.com/prod/classify -H "Content-Type: application/json" -d '{"image_id":"your-image-id-here"}'

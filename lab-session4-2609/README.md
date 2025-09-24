@@ -24,14 +24,6 @@ sudo apt-get install unzip python3-pip
 pip3 install aws-sam-cli
 ```
 
-## Apache JMeter
-1. Download from: https://jmeter.apache.org/
-2. Unzip the downloaded file
-3. Add the `bin/` directory to your system PATH
-4. Verify installation:
-```bash
-jmeter -v
-```
 # Plan for the Lab Session
 
 Part 1. **Provision baseline infrastructure (Using Console)**  
@@ -39,7 +31,7 @@ Part 1. **Provision baseline infrastructure (Using Console)**
    - Create DynamoDB table for storing metadata.  
 
 Part 2. **Deploy Workflows (CLI)**  
-   - **Workflow 1 (Lambda ingestion):**  
+   - **Lambda Function 1 (Lambda ingestion):**  
      - Lambda fetches image from URL.  
      - Uploads image to S3.  
      - Inserts metadata into DynamoDB.  
@@ -53,23 +45,12 @@ Part 2. **Deploy Workflows (CLI)**
   
 
 Part 3. **Benchmark and Visualize Workflows (CLI and console)**  
-   - Use [Apache JMeter](https://jmeter.apache.org/) to invoke:  
+   - Use a python client to invoke:  
      - Workflow 1: Lambda ingestion.  
      - Workflow 2: Step Functions classification pipeline.  
-   - Load profile: **1 RPS for 180 seconds (3 minutes)**.  
+   - Load profile: **1 RPS for 30 seconds**.  
 
-   **Collect Logs & Metrics**  
-      - CloudWatch Logs from each Lambda.  
-      - CloudWatch Metrics: Duration, InitDuration (cold starts), Invocations, Errors, Throttles.  
-
-   **Analysis & Visualization**  
-      - Export CloudWatch logs.  
-      - Parse logs with Python (Pandas).  
-      - Plot timelines using Matplotlib:  
-      - Cold starts vs warm starts.  
-      - End-to-end latencies.  
-      - Throughput over time.  
-      - Estimate cost from Lambda, S3, DynamoDB usage.  
+     
 
 ---
 

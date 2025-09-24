@@ -1,0 +1,232 @@
+{
+  "Comment": "Image Classification Pipeline - Workflow 2",
+  "StartAt": "FetchImage",
+  "States": {
+    "FetchImage": {
+      "Type": "Task",
+      "Resource": "${FetchImageFunctionArn}",
+      "Comment": "Fetch image from S3 using metadata from DynamoDB",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "Preprocessing"
+    },
+
+    "Preprocessing": {
+      "Type": "Task",
+      "Resource": "${PreprocessingFunctionArn}",
+      "Comment": "Apply preprocessing pipeline: grayscale → flip → rotate → resize",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "ParallelInference"
+    },
+
+    "ParallelInference": {
+      "Type": "Parallel",
+      "Comment": "Run AlexNet, ResNet, and MobileNet inference in parallel",
+      "Branches": [
+        {
+          "StartAt": "AlexNetInference",
+          "States": {
+            "AlexNetInference": {
+              "Type": "Task",
+              "Resource": "${MLInferenceFunctionArn}",
+              "Parameters": {
+                "image_id.$": "$.image_id",
+                "processed_image_data.$": "$.processed_image_data",
+                "model_name": "alexnet",
+                "metadata.$": "$.metadata"
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+                  "IntervalSeconds": 1,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2.0
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.TaskFailed"],
+                  "ResultPath": "$.error",
+                  "Next": "AlexNetFailed"
+                }
+              ],
+              "End": true
+            },
+            "AlexNetFailed": {
+              "Type": "Pass",
+              "Result": {
+                "statusCode": 500,
+                "model_name": "alexnet",
+                "inference_failed": true,
+                "error": "AlexNet inference failed"
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "ResNetInference",
+          "States": {
+            "ResNetInference": {
+              "Type": "Task",
+              "Resource": "${MLInferenceFunctionArn}",
+              "Parameters": {
+                "image_id.$": "$.image_id",
+                "processed_image_data.$": "$.processed_image_data",
+                "model_name": "resnet",
+                "metadata.$": "$.metadata"
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+                  "IntervalSeconds": 1,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2.0
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.TaskFailed"],
+                  "ResultPath": "$.error",
+                  "Next": "ResNetFailed"
+                }
+              ],
+              "End": true
+            },
+            "ResNetFailed": {
+              "Type": "Pass",
+              "Result": {
+                "statusCode": 500,
+                "model_name": "resnet",
+                "inference_failed": true,
+                "error": "ResNet inference failed"
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "MobileNetInference",
+          "States": {
+            "MobileNetInference": {
+              "Type": "Task",
+              "Resource": "${MLInferenceFunctionArn}",
+              "Parameters": {
+                "image_id.$": "$.image_id",
+                "processed_image_data.$": "$.processed_image_data",
+                "model_name": "mobilenet",
+                "metadata.$": "$.metadata"
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+                  "IntervalSeconds": 1,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2.0
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.TaskFailed"],
+                  "ResultPath": "$.error",
+                  "Next": "MobileNetFailed"
+                }
+              ],
+              "End": true
+            },
+            "MobileNetFailed": {
+              "Type": "Pass",
+              "Result": {
+                "statusCode": 500,
+                "model_name": "mobilenet",
+                "inference_failed": true,
+                "error": "MobileNet inference failed"
+              },
+              "End": true
+            }
+          }
+        }
+      ],
+      "ResultPath": "$.parallel_results",
+      "Next": "AggregateResults"
+    },
+
+    "AggregateResults": {
+      "Type": "Task",
+      "Resource": "${AggregatorFunctionArn}",
+      "Comment": "Consolidate results from all models and update DynamoDB",
+      "Parameters": {
+        "image_id.$": "$.image_id",
+        "alexnet_result.$": "$.parallel_results[0]",
+        "resnet_result.$": "$.parallel_results[1]", 
+        "mobilenet_result.$": "$.parallel_results[2]",
+        "original_metadata.$": "$.metadata"
+      },
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "Next": "HandleError",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "Success"
+    },
+
+    "Success": {
+      "Type": "Pass",
+      "Comment": "Classification pipeline completed successfully",
+      "Result": {
+        "status": "SUCCESS",
+        "message": "Image classification completed successfully"
+      },
+      "End": true
+    },
+
+    "HandleError": {
+      "Type": "Pass",
+      "Comment": "Handle pipeline errors",
+      "Parameters": {
+        "status": "FAILED",
+        "error.$": "$.error",
+        "image_id.$": "$.image_id",
+        "message": "Image classification pipeline failed"
+      },
+      "End": true
+    }
+  }
+}
