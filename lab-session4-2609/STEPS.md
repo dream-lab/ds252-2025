@@ -823,22 +823,3 @@ Avg Response Time:  14567.8ms
 ============================================================
 📄 Detailed results saved to: load_test_results.json
 ```
-
-### Step 4: Check CloudWatch Metrics
-
-Monitor Lambda metrics during and after tests:
-- Duration
-- Invocations  
-- Errors
-- Cold starts (InitDuration)
-
-### ✅ Load Testing Complete!
-
-- **Test Duration**: 30 seconds per workflow at 1 RPS
-- **Results**: Displayed in terminal + saved to `load_test_results.json`
-- **Metrics**: Response times, success rates, error details
-- **Analysis**: Compare cold vs warm starts, end-to-end latencies
-
-
-
-
