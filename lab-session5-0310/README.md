@@ -17,7 +17,6 @@
 
 **Tools (install on your workstation or Cloud9):**
 
-* **AWS CLI v2:** install for your OS. ([AWS Documentation][5])
 * **kubectl:** install for Linux/macOS/Windows. ([Kubernetes][6])
 * **eksctl:** quick start & cluster management guide. ([AWS Documentation][1])
 * **Helm 3:** install and quickstart. ([helm.sh][3])
