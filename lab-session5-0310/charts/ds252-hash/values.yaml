@@ -1,0 +1,30 @@
+replicaCount: 1
+
+image:
+  repository: 123456789012.dkr.ecr.ap-south-1.amazonaws.com/ds252-flask
+  tag: "hash-v2"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 5000
+
+env:
+  AWS_REGION: "ap-south-1"
+  # Only needed if you use /text with S3; leave empty otherwise.
+  S3_BUCKET: ""
+  # Global CPU work for /hash (no per-request knobs)
+  MICRO_HASH_ROUNDS: "50000"
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: 250m
+    memory: 512Mi
+
+podAnnotations: {}
+podLabels: {}
+
