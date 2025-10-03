@@ -58,9 +58,10 @@ export REGION=ap-south-1
 export CLUSTER=ds252-observe
 export NS_APP=app
 export NS_MON=monitoring
-# Your ECR image (already pushed in prior lab)
-export APP_IMAGE="123456789012.dkr.ecr.${REGION}.amazonaws.com/ds252-flask:hash-v2"
-```
+
+# Your ECR image (from previous lab): use tag 'latest'
+export REPO_URI="1234567890.dkr.ecr.ap-south-1.amazonaws.com/ds252-flask"
+export IMAGE_TAG="latest"```
 
 ---
 
@@ -73,6 +74,11 @@ eksctl create cluster \
   --with-oidc
 
 kubectl cluster-info
+kubectl get nodes
+
+# Scale up cluster
+eksctl scale nodegroup --cluster "$CLUSTER" --name ng-public --nodes 2
+kubectl get nodes
 kubectl get nodes
 ```
 
@@ -92,12 +98,38 @@ kubectl -n kube-system rollout status deploy/metrics-server
 kubectl top nodes     # should show CPU/mem shortly
 ```
 
+OR
+```bash
+# Install (or verify) the EKS managed add-on
+aws eks create-addon --cluster-name "$CLUSTER" --region "$REGION" --addon-name metrics-server 2>/dev/null || true
+
+# Wait until ACTIVE
+aws eks describe-addon --cluster-name "$CLUSTER" --region "$REGION" \
+  --addon-name metrics-server --query 'addon.status' --output text
+
+# Verify metrics are flowing
+kubectl -n kube-system get deploy metrics-server
+kubectl top nodes
+
+```
+
 > metrics-server feeds CPU/Memory resource metrics to the HPA controller. ([Artifact Hub][2])
 
 ---
 
 ## 3) Install **Prometheus + Grafana** (kube-prometheus-stack)
 
+```bash
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+
+helm upgrade --install kps prometheus-community/kube-prometheus-stack -n $NS_MON --create-namespace \
+  --set grafana.adminPassword='admin' \
+  --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false
+
+kubectl -n $NS_MON get pods
+```
+OR
 ```bash
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update
@@ -148,12 +180,26 @@ helm upgrade --install labapp ./charts/ds252-hash -n $NS_APP \
 kubectl -n $NS_APP get deploy,svc,pods
 ```
 
-**Smoke test (port-forward):**
-
+**Smoke test (make service externally available):**
 ```bash
-kubectl -n $NS_APP port-forward svc/labapp 8080:80 >/dev/null &
-curl -s http://localhost:8080/healthz | jq .
-curl -s -X POST http://localhost:8080/hash -d "data=hello-ds252" | jq .
+# Make the Service externally reachable
+kubectl -n $NS_APP patch svc/labapp -p '{"spec":{"type":"LoadBalancer"}}'
+
+# Scale to 2 replicas so one pod restart doesn't break traffic
+kubectl -n $NS_APP scale deploy/labapp --replicas=2
+
+# (If HPA exists, keep minReplicas at least 2)
+kubectl -n $NS_APP patch hpa labapp --type='merge' -p '{"spec":{"minReplicas":2}}' || true
+
+# Wait for an external hostname
+kubectl -n $NS_APP get svc labapp -w
+APP_HOST=$(kubectl -n $NS_APP get svc labapp -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+echo "APP_HOST = $APP_HOST"
+
+# Test endpoints
+curl -sv --max-time 10 "http://${APP_HOST}/healthz"
+curl -sv --max-time 10 -X POST "http://${APP_HOST}/hash" -d "data=hello-ds252"
+
 ```
 
 > Helm install basics: `helm repo`, `helm upgrade --install`, chart values. ([helm.sh][3])
@@ -180,9 +226,12 @@ Use your prior JMX. Set a HTTP Request Sampler to **POST** `data=${__RandomStrin
 
 ```bash
 jmeter -n -t hash-load.jmx \
-  -JSERVER=localhost -JPORT=8080 -JPROTOCOL=http \
-  -JTHREADS=80 -JRAMP=15 -JDURATION=120 \
-  -l results.jtl -e -o out-report
+  -JSERVER="$APP_HOST" -JPORT=80 -JPROTOCOL=http \
+  -JTHREADS=10 -JRAMP=5 -JDURATION=30 \
+  -l warmup.jtl
+rm -rf warmup-report
+jmeter -g warmup.jtl -o warmup-report
+
 ```
 
 ---
@@ -192,9 +241,13 @@ jmeter -n -t hash-load.jmx \
 Run these in separate shells while the test is active:
 
 ```bash
-kubectl -n $NS_APP get hpa -w
-kubectl -n $NS_APP get deploy labapp -w
-kubectl -n $NS_APP get pods -w
+jmeter -n -t hash-load.jmx \
+  -JSERVER="$APP_HOST" -JPORT=80 -JPROTOCOL=http \
+  -JTHREADS=60 -JRAMP=10 -JDURATION=120 \
+  -l scaleout.jtl
+rm -rf scaleout-report
+jmeter -g scaleout.jtl -o scaleout-report
+
 ```
 
 Open **Grafana**:
