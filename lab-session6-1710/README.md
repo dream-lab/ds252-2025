@@ -23,12 +23,9 @@ You will learn to:
 
 ---
 
-## ⚙️ Environment Setup (Mac/Linux Only)
+## ⚙️ Environment Setup
 
-> **Important:**  
-> AWS CLI and credentials are **already configured** for this lab.  
-> You do **not** need to run `aws configure` or perform any IAM setup.  
-> Only **Terraform installation** is required on your local system.
+1. AWS Account Setup and CLI configured
 
 ---
 
