@@ -1,0 +1,364 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'DS252 Serverless Workflows - CloudFormation Template'
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: ds252
+    Description: Name of the project
+  
+  Environment:
+    Type: String
+    Default: lab
+    Description: Environment name
+  
+  AWSRegion:
+    Type: String
+    Default: us-east-1
+    Description: AWS region
+
+Resources:
+  # S3 Bucket for storing images
+  ImageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectName}-image-bucket-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # DynamoDB Table for metadata
+  MetadataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-metadata-table'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: image_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: image_id
+          KeyType: HASH
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-metadata-table'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # IAM Role for Lambda functions
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-lambda-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub '${ImageBucket}/*'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !Ref ImageBucket
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !GetAtt MetadataTable.Arn
+
+  # IAM Role for Step Functions
+  StepFunctionsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-stepfunctions-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StepFunctionsExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt FetchImageFunction.Arn
+                  - !GetAtt PreprocessingFunction.Arn
+                  - !GetAtt AlexNetInferenceFunction.Arn
+                  - !GetAtt ResNetInferenceFunction.Arn
+                  - !GetAtt MobileNetInferenceFunction.Arn
+                  - !GetAtt AggregatorFunction.Arn
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt MetadataTable.Arn
+
+  # CloudWatch Log Group
+  LambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectName}'
+      RetentionInDays: 14
+
+  # Lambda function for image ingestion
+  ImageIngestionFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-image-ingestion'
+      Runtime: python3.9
+      Handler: image_ingestion.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import json
+          def lambda_handler(event, context):
+              return {'statusCode': 200, 'body': json.dumps('Hello from Lambda!')}
+      Environment:
+        Variables:
+          S3_BUCKET: !Ref ImageBucket
+          DYNAMODB_TABLE: !Ref MetadataTable
+      DependsOn: LambdaLogGroup
+
+  # Lambda function for fetching images
+  FetchImageFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-fetch-image'
+      Runtime: python3.9
+      Handler: fetch_image.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import json
+          def lambda_handler(event, context):
+              return {'statusCode': 200, 'body': json.dumps('Hello from Lambda!')}
+      Environment:
+        Variables:
+          S3_BUCKET: !Ref ImageBucket
+
+  # Lambda function for preprocessing
+  PreprocessingFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-preprocessing'
+      Runtime: python3.9
+      Handler: preprocessing.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import json
+          def lambda_handler(event, context):
+              return {'statusCode': 200, 'body': json.dumps('Hello from Lambda!')}
+
+  # Lambda function for AlexNet inference
+  AlexNetInferenceFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-alexnet-inference'
+      Runtime: python3.9
+      Handler: alexnet_inference.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import json
+          def lambda_handler(event, context):
+              return {'statusCode': 200, 'body': json.dumps('Hello from Lambda!')}
+
+  # Lambda function for ResNet inference
+  ResNetInferenceFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-resnet-inference'
+      Runtime: python3.9
+      Handler: resnet_inference.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import json
+          def lambda_handler(event, context):
+              return {'statusCode': 200, 'body': json.dumps('Hello from Lambda!')}
+
+  # Lambda function for MobileNet inference
+  MobileNetInferenceFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-mobilenet-inference'
+      Runtime: python3.9
+      Handler: mobilenet_inference.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import json
+          def lambda_handler(event, context):
+              return {'statusCode': 200, 'body': json.dumps('Hello from Lambda!')}
+
+  # Lambda function for aggregating results
+  AggregatorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-aggregator'
+      Runtime: python3.9
+      Handler: aggregator.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import json
+          def lambda_handler(event, context):
+              return {'statusCode': 200, 'body': json.dumps('Hello from Lambda!')}
+      Environment:
+        Variables:
+          DYNAMODB_TABLE: !Ref MetadataTable
+
+  # Step Functions State Machine
+  ClassificationPipeline:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub '${ProjectName}-classification-pipeline'
+      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "Image Classification Pipeline",
+          "StartAt": "FetchImage",
+          "States": {
+            "FetchImage": {
+              "Type": "Task",
+              "Resource": "${FetchImageFunction.Arn}",
+              "Next": "Preprocessing"
+            },
+            "Preprocessing": {
+              "Type": "Task",
+              "Resource": "${PreprocessingFunction.Arn}",
+              "Next": "ParallelInference"
+            },
+            "ParallelInference": {
+              "Type": "Parallel",
+              "Branches": [
+                {
+                  "StartAt": "AlexNet",
+                  "States": {
+                    "AlexNet": {
+                      "Type": "Task",
+                      "Resource": "${AlexNetInferenceFunction.Arn}",
+                      "End": true
+                    }
+                  }
+                },
+                {
+                  "StartAt": "ResNet",
+                  "States": {
+                    "ResNet": {
+                      "Type": "Task",
+                      "Resource": "${ResNetInferenceFunction.Arn}",
+                      "End": true
+                    }
+                  }
+                },
+                {
+                  "StartAt": "MobileNet",
+                  "States": {
+                    "MobileNet": {
+                      "Type": "Task",
+                      "Resource": "${MobileNetInferenceFunction.Arn}",
+                      "End": true
+                    }
+                  }
+                }
+              ],
+              "Next": "AggregateResults"
+            },
+            "AggregateResults": {
+              "Type": "Task",
+              "Resource": "${AggregatorFunction.Arn}",
+              "End": true
+            }
+          }
+        }
+
+Outputs:
+  S3BucketName:
+    Description: Name of the S3 bucket
+    Value: !Ref ImageBucket
+    Export:
+      Name: !Sub '${ProjectName}-S3BucketName'
+
+  S3BucketArn:
+    Description: ARN of the S3 bucket
+    Value: !GetAtt ImageBucket.Arn
+    Export:
+      Name: !Sub '${ProjectName}-S3BucketArn'
+
+  DynamoDBTableName:
+    Description: Name of the DynamoDB table
+    Value: !Ref MetadataTable
+    Export:
+      Name: !Sub '${ProjectName}-DynamoDBTableName'
+
+  DynamoDBTableArn:
+    Description: ARN of the DynamoDB table
+    Value: !GetAtt MetadataTable.Arn
+    Export:
+      Name: !Sub '${ProjectName}-DynamoDBTableArn'
+
+  LambdaImageIngestionArn:
+    Description: ARN of the image ingestion Lambda function
+    Value: !GetAtt ImageIngestionFunction.Arn
+    Export:
+      Name: !Sub '${ProjectName}-LambdaImageIngestionArn'
+
+  StepFunctionsArn:
+    Description: ARN of the Step Functions state machine
+    Value: !Ref ClassificationPipeline
+    Export:
+      Name: !Sub '${ProjectName}-StepFunctionsArn'
+
+  AWSAccountId:
+    Description: Current AWS Account ID
+    Value: !Ref AWS::AccountId
+    Export:
+      Name: !Sub '${ProjectName}-AWSAccountId'
+
+  AWSRegion:
+    Description: Current AWS Region
+    Value: !Ref AWS::Region
+    Export:
+      Name: !Sub '${ProjectName}-AWSRegion'
