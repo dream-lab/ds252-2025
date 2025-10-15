@@ -7,3 +7,4 @@ samconfig.toml
 test-stepfunctions-payload.json
 load_test_results.json
 test-payload.json
+.terraform
