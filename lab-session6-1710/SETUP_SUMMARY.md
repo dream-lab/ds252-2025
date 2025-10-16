@@ -41,20 +41,14 @@ lab-session6-1710/
 - Receives HTTP requests from Lambda
 - Downloads images from provided URLs
 - Uploads images to S3
-- Writes metadata to DynamoDB
 - Returns processing status
 
 ### 3. **S3 Bucket**
 - Stores downloaded images
 - Versioning enabled
-- Public access blocked
+- Public access allowed for PUT/GET operations
 
-### 4. **DynamoDB Table**
-- Stores image metadata
-- Primary key: image_id
-- Contains: bucket location, file size, extension, status, timestamps
-
-### 5. **Infrastructure as Code**
+### 4. **Infrastructure as Code**
 - **Terraform**: main.tf, variables.tf, outputs.tf
 - **CloudFormation**: cloudformation-template.yaml
 

@@ -1,6 +1,6 @@
 # DS252 Lab Session 6 - Complete Deployment Guide
 
-## Hybrid Architecture: Lambda + EC2 + S3 + DynamoDB
+## Hybrid Architecture: Lambda + EC2 + S3
 
 This guide will walk you through deploying a hybrid AWS architecture using both **Terraform** and **CloudFormation**. Follow this step-by-step to reproduce the entire setup.
 
@@ -158,7 +158,6 @@ terraform plan -out=tfplan
 # - IAM roles and policies
 # - EC2 instance
 # - S3 bucket
-# - DynamoDB table
 # - Lambda function
 
 # Save plan details to file for review
@@ -189,7 +188,6 @@ terraform output
 # - lambda_function_name
 # - lambda_function_arn
 # - s3_bucket_name
-# - dynamodb_table_name
 # - vpc_id
 
 # Save outputs to variable for later use
@@ -198,14 +196,12 @@ EC2_PUBLIC_IP=$(terraform output -raw ec2_instance_public_ip)
 EC2_PRIVATE_IP=$(terraform output -raw ec2_instance_private_ip)
 LAMBDA_NAME=$(terraform output -raw lambda_function_name)
 S3_BUCKET=$(terraform output -raw s3_bucket_name)
-DYNAMODB_TABLE=$(terraform output -raw dynamodb_table_name)
 
 echo "EC2 ID: $EC2_ID"
 echo "EC2 Public IP: $EC2_PUBLIC_IP"
 echo "EC2 Private IP: $EC2_PRIVATE_IP"
 echo "Lambda Name: $LAMBDA_NAME"
 echo "S3 Bucket: $S3_BUCKET"
-echo "DynamoDB Table: $DYNAMODB_TABLE"
 ```
 
 ### Step 1.8: Verify AWS Resources Created
@@ -214,10 +210,6 @@ echo "DynamoDB Table: $DYNAMODB_TABLE"
 echo "=== Checking S3 ===" 
 aws s3 ls | grep hybrid
 aws s3api head-bucket --bucket $S3_BUCKET && echo "S3 bucket exists ✓"
-
-# Check DynamoDB table
-echo "=== Checking DynamoDB ==="
-aws dynamodb describe-table --table-name $DYNAMODB_TABLE --query 'Table.TableName'
 
 # Check EC2 instance
 echo "=== Checking EC2 ==="
@@ -307,7 +299,7 @@ aws lambda invoke \
   response.txt && cat response.txt
 ```
 
-### Step 1.12: Verify Image Processing in S3 and DynamoDB
+### Step 1.12: Verify Image Processing in S3
 ```bash
 # List images in S3 bucket
 echo "=== Images in S3 ==="
@@ -315,64 +307,9 @@ aws s3 ls s3://$S3_BUCKET/images/
 
 # Get image count
 aws s3 ls s3://$S3_BUCKET/images/ --recursive --summarize | grep "Total Objects:"
-
-# Check DynamoDB for metadata
-echo "=== Metadata in DynamoDB ==="
-aws dynamodb scan \
-  --table-name $DYNAMODB_TABLE \
-  --output table
-
-# Get item count
-aws dynamodb scan \
-  --table-name $DYNAMODB_TABLE \
-  --select COUNT \
-  --output json | jq '.Count'
-
-# Query specific item
-IMAGE_ID=$(aws dynamodb scan \
-  --table-name $DYNAMODB_TABLE \
-  --select "ALL_ATTRIBUTES" \
-  --max-items 1 \
-  --output json | jq -r '.Items[0].image_id.S')
-
-echo "Querying image: $IMAGE_ID"
-aws dynamodb get-item \
-  --table-name $DYNAMODB_TABLE \
-  --key "{\"image_id\": {\"S\": \"$IMAGE_ID\"}}" \
-  --output json | jq '.'
 ```
 
-### Step 1.13: Check Lambda Logs
-```bash
-# Get Lambda log group name
-LOG_GROUP="/aws/lambda/$LAMBDA_NAME"
-
-# List log streams
-aws logs describe-log-streams \
-  --log-group-name $LOG_GROUP \
-  --order-by LastEventTime \
-  --descending \
-  --max-items 5
-
-# Get latest log events
-aws logs tail $LOG_GROUP --follow
-
-# Or get specific log stream
-STREAM=$(aws logs describe-log-streams \
-  --log-group-name $LOG_GROUP \
-  --order-by LastEventTime \
-  --descending \
-  --max-items 1 \
-  --query 'logStreams[0].logStreamName' \
-  --output text)
-
-aws logs get-log-events \
-  --log-group-name $LOG_GROUP \
-  --log-stream-name $STREAM \
-  --output json | jq '.events[]'
-```
-
-### Step 1.14: Multiple Test Calls
+### Step 1.13: Multiple Test Calls
 ```bash
 # Run 5 test invocations
 for i in {1..5}; do
@@ -398,13 +335,6 @@ done
 # Verify all images in S3
 echo "Total images processed:"
 aws s3 ls s3://$S3_BUCKET/images/ --recursive --summarize | grep "Total Objects:"
-
-# Verify DynamoDB item count
-echo "Total metadata records:"
-aws dynamodb scan \
-  --table-name $DYNAMODB_TABLE \
-  --select COUNT \
-  --output json | jq '.Count'
 ```
 
 ---
@@ -501,14 +431,8 @@ CF_S3=$(aws cloudformation describe-stacks \
   --query 'Stacks[0].Outputs[?OutputKey==`S3BucketName`].OutputValue' \
   --output text)
 
-CF_DDB=$(aws cloudformation describe-stacks \
-  --stack-name $CF_STACK_NAME \
-  --query 'Stacks[0].Outputs[?OutputKey==`DynamoDBTableName`].OutputValue' \
-  --output text)
-
 echo "CF Lambda: $CF_LAMBDA"
 echo "CF S3: $CF_S3"
-echo "CF DynamoDB: $CF_DDB"
 echo "CF EC2 IP: $CF_EC2_IP"
 ```
 
@@ -548,10 +472,6 @@ aws cloudformation describe-stack-resources \
 # Verify S3 bucket exists
 aws s3 ls | grep cf
 
-# Verify DynamoDB table
-aws dynamodb describe-table --table-name $CF_DDB \
-  --query 'Table.TableName'
-
 # Verify Lambda function
 aws lambda get-function --function-name $CF_LAMBDA \
   --query 'Configuration.FunctionName'
@@ -588,17 +508,8 @@ jq . cf-lambda-response.json
 echo "=== Images in CloudFormation S3 ==="
 aws s3 ls s3://$CF_S3/images/
 
-# Check CloudFormation DynamoDB
-echo "=== CloudFormation DynamoDB Metadata ==="
-aws dynamodb scan \
-  --table-name $CF_DDB \
-  --output table
-
 # Get count
-aws dynamodb scan \
-  --table-name $CF_DDB \
-  --select COUNT \
-  --output json | jq '.Count'
+aws s3 ls s3://$CF_S3/images/ --recursive --summarize | grep "Total Objects:"
 ```
 
 ---
@@ -707,48 +618,6 @@ echo "CloudFormation images:"
 aws s3 ls s3://$CF_S3/images/ --recursive
 ```
 
-### Step 3.5: Compare Data in Both DynamoDB Tables
-```bash
-# Compare DynamoDB tables
-echo "=== DynamoDB Comparison ==="
-
-TF_ITEMS=$(aws dynamodb scan --table-name $DYNAMODB_TABLE --select COUNT --output json | jq '.Count')
-CF_ITEMS=$(aws dynamodb scan --table-name $CF_DDB --select COUNT --output json | jq '.Count')
-
-echo "Terraform DynamoDB Items: $TF_ITEMS"
-echo "CloudFormation DynamoDB Items: $CF_ITEMS"
-
-# Show all items from both
-echo ""
-echo "Terraform metadata:"
-aws dynamodb scan --table-name $DYNAMODB_TABLE --output table
-
-echo ""
-echo "CloudFormation metadata:"
-aws dynamodb scan --table-name $CF_DDB --output table
-```
-
-### Step 3.6: Check Lambda Logs from Both
-```bash
-# Compare Lambda logs
-echo "=== Lambda Logs Comparison ==="
-
-# Terraform Lambda logs
-TF_LOG_GROUP="/aws/lambda/$LAMBDA_NAME"
-TF_STREAM=$(aws logs describe-log-streams --log-group-name $TF_LOG_GROUP --order-by LastEventTime --descending --max-items 1 --query 'logStreams[0].logStreamName' --output text)
-
-echo "Terraform Lambda Logs:"
-aws logs get-log-events --log-group-name $TF_LOG_GROUP --log-stream-name $TF_STREAM --output json | jq '.events[-5:] | .[]' 
-
-# CloudFormation Lambda logs
-CF_LOG_GROUP="/aws/lambda/$CF_LAMBDA"
-CF_STREAM=$(aws logs describe-log-streams --log-group-name $CF_LOG_GROUP --order-by LastEventTime --descending --max-items 1 --query 'logStreams[0].logStreamName' --output text)
-
-echo ""
-echo "CloudFormation Lambda Logs:"
-aws logs get-log-events --log-group-name $CF_LOG_GROUP --log-stream-name $CF_STREAM --output json | jq '.events[-5:] | .[]'
-```
-
 ---
 
 ## PART 4: Cleanup and Destruction
@@ -843,24 +712,17 @@ echo "╚═══════════════════════�
 
 # Terraform data
 TF_S3=$(terraform output -raw s3_bucket_name 2>/dev/null)
-TF_DDB=$(terraform output -raw dynamodb_table_name 2>/dev/null)
 TF_LAMBDA=$(terraform output -raw lambda_function_name 2>/dev/null)
 
 # CloudFormation data
 CF_STACK="ds252-hybrid-cf"
 CF_S3=$(aws cloudformation describe-stacks --stack-name $CF_STACK --query 'Stacks[0].Outputs[?OutputKey==`S3BucketName`].OutputValue' --output text 2>/dev/null)
-CF_DDB=$(aws cloudformation describe-stacks --stack-name $CF_STACK --query 'Stacks[0].Outputs[?OutputKey==`DynamoDBTableName`].OutputValue' --output text 2>/dev/null)
 CF_LAMBDA=$(aws cloudformation describe-stacks --stack-name $CF_STACK --query 'Stacks[0].Outputs[?OutputKey==`LambdaFunctionName`].OutputValue' --output text 2>/dev/null)
 
 echo ""
 echo "S3 Buckets:"
 echo "  Terraform: $TF_S3"
 echo "  CloudFormation: $CF_S3"
-
-echo ""
-echo "DynamoDB Tables:"
-echo "  Terraform: $TF_DDB"
-echo "  CloudFormation: $CF_DDB"
 
 echo ""
 echo "Lambda Functions:"
@@ -873,13 +735,6 @@ TF_IMG=$(aws s3 ls s3://$TF_S3/images/ --recursive --summarize 2>/dev/null | gre
 CF_IMG=$(aws s3 ls s3://$CF_S3/images/ --recursive --summarize 2>/dev/null | grep "Total Objects:" | awk '{print $NF}')
 echo "  Terraform: $TF_IMG"
 echo "  CloudFormation: $CF_IMG"
-
-echo ""
-echo "DynamoDB Item Counts:"
-TF_ITEMS=$(aws dynamodb scan --table-name $TF_DDB --select COUNT 2>/dev/null | jq '.Count')
-CF_ITEMS=$(aws dynamodb scan --table-name $CF_DDB --select COUNT 2>/dev/null | jq '.Count')
-echo "  Terraform: $TF_ITEMS"
-echo "  CloudFormation: $CF_ITEMS"
 ```
 
 ---
@@ -897,12 +752,10 @@ Use this checklist to verify your deployment:
 - [ ] Flask server running on EC2 (port 5000)
 - [ ] Lambda function invocation successful
 - [ ] Images uploaded to S3
-- [ ] Metadata saved to DynamoDB
 - [ ] CloudFormation template validates
 - [ ] CloudFormation stack created successfully
 - [ ] CloudFormation resources match Terraform
 - [ ] Both S3 buckets have images
-- [ ] Both DynamoDB tables have metadata
 - [ ] Lambda logs show successful executions
 - [ ] Comparison tests completed
 - [ ] Cleanup completed (if destroying)
@@ -939,7 +792,7 @@ terraform output s3_bucket_name
 aws s3api head-bucket --bucket $S3_BUCKET
 ```
 
-### Problem: DynamoDB table is empty
+### Problem: Lambda function is empty
 ```bash
 # Solution: Check Lambda execution and logs
 aws logs tail /aws/lambda/$LAMBDA_NAME --follow

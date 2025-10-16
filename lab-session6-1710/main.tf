@@ -29,27 +29,36 @@ resource "aws_s3_bucket_versioning" "image_bucket_versioning" {
 resource "aws_s3_bucket_public_access_block" "image_bucket_pab" {
   bucket = aws_s3_bucket.image_bucket.id
 
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
+  block_public_acls       = false
+  block_public_policy     = false
+  ignore_public_acls      = false
+  restrict_public_buckets = false
 }
 
-# ==================== DYNAMODB TABLE ====================
-resource "aws_dynamodb_table" "metadata_table" {
-  name           = "${var.project_name}-metadata"
-  billing_mode   = "PAY_PER_REQUEST"
-  hash_key       = "image_id"
+resource "aws_s3_bucket_policy" "image_bucket_policy" {
+  bucket = aws_s3_bucket.image_bucket.id
+  
+  depends_on = [aws_s3_bucket_public_access_block.image_bucket_pab]
 
-  attribute {
-    name = "image_id"
-    type = "S"
-  }
-
-  tags = {
-    Name        = "${var.project_name}-metadata"
-    Environment = var.environment
-  }
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "PublicReadGetObject"
+        Effect = "Allow"
+        Principal = "*"
+        Action = "s3:GetObject"
+        Resource = "${aws_s3_bucket.image_bucket.arn}/*"
+      },
+      {
+        Sid    = "PublicPutObject"
+        Effect = "Allow"
+        Principal = "*"
+        Action = "s3:PutObject"
+        Resource = "${aws_s3_bucket.image_bucket.arn}/*"
+      }
+    ]
+  })
 }
 
 # ==================== VPC & SECURITY ====================
@@ -66,7 +75,7 @@ resource "aws_vpc" "main" {
 resource "aws_subnet" "main" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.1.0/24"
-  availability_zone       = data.aws_region.current.name
+  availability_zone       = "ap-south-1a"
   map_public_ip_on_launch = true
 
   tags = {
@@ -164,35 +173,33 @@ resource "aws_iam_role" "lambda_role" {
       }
     ]
   })
-}
 
-resource "aws_iam_role_policy" "lambda_policy" {
-  name = "${var.project_name}-lambda-policy"
-  role = aws_iam_role.lambda_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents"
-        ]
-        Resource = "arn:aws:logs:*:*:*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "ec2:CreateNetworkInterface",
-          "ec2:DescribeNetworkInterfaces",
-          "ec2:DeleteNetworkInterface"
-        ]
-        Resource = "*"
-      }
-    ]
-  })
+  inline_policy {
+    name = "${var.project_name}-lambda-policy"
+    policy = jsonencode({
+      Version = "2012-10-17"
+      Statement = [
+        {
+          Effect = "Allow"
+          Action = [
+            "logs:CreateLogGroup",
+            "logs:CreateLogStream",
+            "logs:PutLogEvents"
+          ]
+          Resource = "arn:aws:logs:*:*:*"
+        },
+        {
+          Effect = "Allow"
+          Action = [
+            "ec2:CreateNetworkInterface",
+            "ec2:DescribeNetworkInterfaces",
+            "ec2:DeleteNetworkInterface"
+          ]
+          Resource = "*"
+        }
+      ]
+    })
+  }
 }
 
 resource "aws_iam_role" "ec2_role" {
@@ -210,50 +217,69 @@ resource "aws_iam_role" "ec2_role" {
       }
     ]
   })
+
+  inline_policy {
+    name = "${var.project_name}-ec2-policy"
+    policy = jsonencode({
+      Version = "2012-10-17"
+      Statement = [
+        {
+          Effect = "Allow"
+          Action = [
+            "s3:PutObject",
+            "s3:GetObject"
+          ]
+          Resource = "${aws_s3_bucket.image_bucket.arn}/*"
+        }
+      ]
+    })
+  }
 }
 
-resource "aws_iam_role_policy" "ec2_policy" {
-  name = "${var.project_name}-ec2-policy"
-  role = aws_iam_role.ec2_role.id
+# ==================== DATA SOURCE FOR AMI ====================
+data "aws_ami" "amazon_linux_2" {
+  most_recent = true
+  owners      = ["amazon"]
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:PutObject",
-          "s3:GetObject"
-        ]
-        Resource = "${aws_s3_bucket.image_bucket.arn}/*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "dynamodb:PutItem",
-          "dynamodb:GetItem",
-          "dynamodb:UpdateItem"
-        ]
-        Resource = aws_dynamodb_table.metadata_table.arn
-      }
-    ]
-  })
+  filter {
+    name   = "name"
+    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
+  }
+
+  filter {
+    name   = "state"
+    values = ["available"]
+  }
 }
 
-resource "aws_iam_instance_profile" "ec2_profile" {
-  name = "${var.project_name}-ec2-profile"
-  role = aws_iam_role.ec2_role.name
+# ==================== EC2 KEY PAIR ====================
+resource "tls_private_key" "flask_key" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "aws_key_pair" "flask_key" {
+  key_name   = "${var.project_name}-key"
+  public_key = tls_private_key.flask_key.public_key_openssh
+}
+
+resource "local_file" "flask_key_pem" {
+  content         = tls_private_key.flask_key.private_key_pem
+  filename        = "${path.module}/${var.project_name}-key.pem"
+  file_permission = "0600"
 }
 
 # ==================== EC2 INSTANCE ====================
 resource "aws_instance" "flask_server" {
-  ami                    = "ami-0c55b159cbfafe1f0"  # Amazon Linux 2
+  ami                    = data.aws_ami.amazon_linux_2.id
   instance_type          = var.instance_type
   subnet_id              = aws_subnet.main.id
-  iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
   vpc_security_group_ids = [aws_security_group.ec2_sg.id]
+  key_name               = aws_key_pair.flask_key.key_name
 
-  user_data = base64encode(file("${path.module}/flask_server_startup.sh"))
+  user_data = base64encode(templatefile("${path.module}/flask_server_startup.sh", {
+    s3_bucket = aws_s3_bucket.image_bucket.bucket
+  }))
 
   tags = {
     Name = "${var.project_name}-flask-server"
@@ -262,24 +288,52 @@ resource "aws_instance" "flask_server" {
 
 # ==================== LAMBDA FUNCTION ====================
 resource "aws_lambda_function" "image_processor" {
-  filename         = "lambda_function.zip"
-  function_name    = "${var.project_name}-processor"
-  role            = aws_iam_role.lambda_role.arn
-  handler         = "lambda_function.lambda_handler"
-  source_code_hash = filebase64sha256("${path.module}/lambda_function.py")
-  runtime         = "python3.9"
-  timeout         = var.lambda_timeout
-  memory_size     = var.lambda_memory
+  function_name = "${var.project_name}-processor"
+  role         = aws_iam_role.lambda_role.arn
+  handler      = "index.lambda_handler"
+  runtime      = "python3.9"
+  timeout      = var.lambda_timeout
+  memory_size  = var.lambda_memory
+
+  filename = "lambda_function.zip"
+  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+
+  vpc_config {
+    subnet_ids         = [aws_subnet.main.id]
+    security_group_ids = [aws_security_group.lambda_sg.id]
+  }
 
   environment {
     variables = {
       EC2_FLASK_URL  = "http://${aws_instance.flask_server.private_ip}:5000"
       S3_BUCKET      = aws_s3_bucket.image_bucket.bucket
-      DYNAMODB_TABLE = aws_dynamodb_table.metadata_table.name
     }
   }
 
-  depends_on = [aws_iam_role_policy.lambda_policy]
+  depends_on = [aws_iam_role.lambda_role]
+}
+
+# ==================== LAMBDA ARCHIVE ====================
+data "archive_file" "lambda_zip" {
+  type        = "zip"
+  output_path = "${path.module}/lambda_function.zip"
+
+  source {
+    content  = file("${path.module}/lambda_function.py")
+    filename = "index.py"
+  }
+}
+
+# ==================== S3 VPC ENDPOINT ====================
+resource "aws_vpc_endpoint" "s3" {
+  vpc_id       = aws_vpc.main.id
+  service_name = "com.amazonaws.${data.aws_region.current.name}.s3"
+  
+  route_table_ids = [aws_route_table.main.id]
+  
+  tags = {
+    Name = "${var.project_name}-s3-endpoint"
+  }
 }
 
 # ==================== CLOUDWATCH LOGS ====================

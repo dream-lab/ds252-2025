@@ -119,7 +119,6 @@ on darwin_amd64 or linux_amd64
    - Receives image URL from Lambda
    - Downloads image from external URL
    - Uploads image to S3
-   - Writes metadata to DynamoDB
    - Returns processing status to Lambda
 
 3. **S3 Bucket**
@@ -127,19 +126,12 @@ on darwin_amd64 or linux_amd64
    - Organized by image ID
    - Versioning enabled for data protection
 
-4. **DynamoDB Table**
-   - Stores image metadata
-   - Primary key: image_id
-   - Tracks processing status and timestamps
-
 ### Data Flow
 
 ```
 Client → Lambda → EC2 Flask Server → External URL (Image Download)
                 ↓
                 S3 Bucket (Image Storage)
-                ↓
-                DynamoDB (Metadata Storage)
                 ↓
                 Lambda ← EC2 (Response)
                 ↓

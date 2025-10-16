@@ -28,11 +28,6 @@ output "s3_bucket_name" {
   value       = aws_s3_bucket.image_bucket.bucket
 }
 
-output "dynamodb_table_name" {
-  description = "DynamoDB table name"
-  value       = aws_dynamodb_table.metadata_table.name
-}
-
 output "vpc_id" {
   description = "VPC ID"
   value       = aws_vpc.main.id
