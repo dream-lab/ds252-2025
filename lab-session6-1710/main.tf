@@ -12,7 +12,6 @@ provider "aws" {
 }
 
 data "aws_caller_identity" "current" {}
-data "aws_region" "current" {}
 
 # ==================== S3 BUCKET ====================
 resource "aws_s3_bucket" "image_bucket" {
@@ -65,58 +64,10 @@ resource "aws_s3_bucket_policy" "image_bucket_policy" {
   })
 }
 
-# ==================== VPC & SECURITY ====================
-resource "aws_vpc" "main" {
-  cidr_block           = "10.0.0.0/16"
-  enable_dns_hostnames = true
-  enable_dns_support   = true
-
-  tags = {
-    Name = "${var.project_name}-vpc"
-  }
-}
-
-resource "aws_subnet" "main" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.1.0/24"
-  availability_zone       = "ap-south-1a"
-  map_public_ip_on_launch = true
-
-  tags = {
-    Name = "${var.project_name}-subnet"
-  }
-}
-
-resource "aws_internet_gateway" "main" {
-  vpc_id = aws_vpc.main.id
-
-  tags = {
-    Name = "${var.project_name}-igw"
-  }
-}
-
-resource "aws_route_table" "main" {
-  vpc_id = aws_vpc.main.id
-
-  route {
-    cidr_block      = "0.0.0.0/0"
-    gateway_id      = aws_internet_gateway.main.id
-  }
-
-  tags = {
-    Name = "${var.project_name}-rt"
-  }
-}
-
-resource "aws_route_table_association" "main" {
-  subnet_id      = aws_subnet.main.id
-  route_table_id = aws_route_table.main.id
-}
-
-resource "aws_security_group" "ec2_sg" {
-  name        = "${var.project_name}-ec2-sg"
-  description = "Security group for EC2 Flask server"
-  vpc_id      = aws_vpc.main.id
+# ==================== SECURITY GROUP ====================
+resource "aws_security_group" "public_sg" {
+  name        = "${var.project_name}-sg"
+  description = "Public security group for Flask and Lambda"
 
   ingress {
     from_port   = 5000
@@ -140,28 +91,11 @@ resource "aws_security_group" "ec2_sg" {
   }
 
   tags = {
-    Name = "${var.project_name}-ec2-sg"
+    Name = "${var.project_name}-sg"
   }
 }
 
-resource "aws_security_group" "lambda_sg" {
-  name        = "${var.project_name}-lambda-sg"
-  description = "Security group for Lambda function"
-  vpc_id      = aws_vpc.main.id
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "${var.project_name}-lambda-sg"
-  }
-}
-
-# ==================== IAM ROLES ====================
+# ==================== IAM ROLE FOR LAMBDA ====================
 resource "aws_iam_role" "lambda_role" {
   name = "${var.project_name}-lambda-role-${local.suffix}"
 
@@ -177,67 +111,26 @@ resource "aws_iam_role" "lambda_role" {
       }
     ]
   })
-
-  inline_policy {
-    name = "${var.project_name}-lambda-policy"
-    policy = jsonencode({
-      Version = "2012-10-17"
-      Statement = [
-        {
-          Effect = "Allow"
-          Action = [
-            "logs:CreateLogGroup",
-            "logs:CreateLogStream",
-            "logs:PutLogEvents"
-          ]
-          Resource = "arn:aws:logs:*:*:*"
-        },
-        {
-          Effect = "Allow"
-          Action = [
-            "ec2:CreateNetworkInterface",
-            "ec2:DescribeNetworkInterfaces",
-            "ec2:DeleteNetworkInterface"
-          ]
-          Resource = "*"
-        }
-      ]
-    })
-  }
 }
 
-resource "aws_iam_role" "ec2_role" {
-  name = "${var.project_name}-ec2-role-${local.suffix}"
+resource "aws_iam_role_policy" "lambda_policy" {
+  name = "${var.project_name}-lambda-policy"
+  role = aws_iam_role.lambda_role.id
 
-  assume_role_policy = jsonencode({
+  policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Action = "sts:AssumeRole"
         Effect = "Allow"
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        Resource = "arn:aws:logs:*:*:*"
       }
     ]
   })
-
-  inline_policy {
-    name = "${var.project_name}-ec2-policy"
-    policy = jsonencode({
-      Version = "2012-10-17"
-      Statement = [
-        {
-          Effect = "Allow"
-          Action = [
-            "s3:PutObject",
-            "s3:GetObject"
-          ]
-          Resource = "${aws_s3_bucket.image_bucket.arn}/*"
-        }
-      ]
-    })
-  }
 }
 
 # ==================== DATA SOURCE FOR AMI ====================
@@ -273,13 +166,13 @@ resource "local_file" "flask_key_pem" {
   file_permission = "0600"
 }
 
-# ==================== EC2 INSTANCE ====================
+# ==================== EC2 INSTANCE (PUBLIC) ====================
 resource "aws_instance" "flask_server" {
   ami                    = data.aws_ami.amazon_linux_2.id
   instance_type          = var.instance_type
-  subnet_id              = aws_subnet.main.id
-  vpc_security_group_ids = [aws_security_group.ec2_sg.id]
   key_name               = aws_key_pair.flask_key.key_name
+  vpc_security_group_ids = [aws_security_group.public_sg.id]
+  associate_public_ip_address = true
 
   user_data = base64encode(templatefile("${path.module}/flask_server_startup.sh", {
     s3_bucket = aws_s3_bucket.image_bucket.bucket
@@ -302,19 +195,14 @@ resource "aws_lambda_function" "image_processor" {
   filename = "lambda_function.zip"
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 
-  vpc_config {
-    subnet_ids         = [aws_subnet.main.id]
-    security_group_ids = [aws_security_group.lambda_sg.id]
-  }
-
   environment {
     variables = {
-      EC2_FLASK_URL  = "http://${aws_instance.flask_server.private_ip}:5000"
+      EC2_FLASK_URL  = "http://${aws_instance.flask_server.public_ip}:5000"
       S3_BUCKET      = aws_s3_bucket.image_bucket.bucket
     }
   }
 
-  depends_on = [aws_iam_role.lambda_role]
+  depends_on = [aws_iam_role_policy.lambda_policy]
 }
 
 # ==================== LAMBDA ARCHIVE ====================
@@ -326,22 +214,4 @@ data "archive_file" "lambda_zip" {
     content  = file("${path.module}/lambda_function.py")
     filename = "index.py"
   }
-}
-
-# ==================== S3 VPC ENDPOINT ====================
-resource "aws_vpc_endpoint" "s3" {
-  vpc_id       = aws_vpc.main.id
-  service_name = "com.amazonaws.${data.aws_region.current.name}.s3"
-  
-  route_table_ids = [aws_route_table.main.id]
-  
-  tags = {
-    Name = "${var.project_name}-s3-endpoint"
-  }
-}
-
-# ==================== CLOUDWATCH LOGS ====================
-resource "aws_cloudwatch_log_group" "lambda_logs" {
-  name              = "/aws/lambda/${var.project_name}-${local.suffix}"
-  retention_in_days = 7
 }
