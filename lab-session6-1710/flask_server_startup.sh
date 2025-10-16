@@ -27,8 +27,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # AWS clients
-s3_client = boto3.client('s3', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
-dynamodb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
+s3_client = boto3.client('s3', region_name=os.environ.get('AWS_REGION', 'ap-south-1'))
+dynamodb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', 'ap-south-1'))
 
 S3_BUCKET = os.environ.get('S3_BUCKET')
 DYNAMODB_TABLE = os.environ.get('DYNAMODB_TABLE')
@@ -143,7 +143,7 @@ if __name__ == '__main__':
 EOF
 
 # Set environment variables
-export AWS_REGION=us-east-1
+export AWS_REGION=ap-south-1
 
 # Get metadata from Terraform
 S3_BUCKET="$(aws ec2 describe-instances --instance-ids $(ec2-metadata --instance-id | cut -d ' ' -f 2) --query 'Reservations[0].Instances[0].Tags[?Key==`S3_BUCKET`].Value' --output text 2>/dev/null || echo '')"
@@ -160,7 +160,7 @@ Type=simple
 User=ec2-user
 WorkingDirectory=/opt/flask-app
 Environment="PATH=/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin"
-Environment="AWS_REGION=us-east-1"
+Environment="AWS_REGION=ap-south-1"
 ExecStart=/usr/bin/python3 /opt/flask-app/app.py
 Restart=on-failure
 RestartSec=10

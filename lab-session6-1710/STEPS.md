@@ -32,7 +32,7 @@ aws configure
 # You will be prompted for:
 # AWS Access Key ID: [paste your access key]
 # AWS Secret Access Key: [paste your secret key]
-# Default region name: us-east-1
+# Default region name: ap-south-1
 # Default output format: json
 
 # Verify configuration
