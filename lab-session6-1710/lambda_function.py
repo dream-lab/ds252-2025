@@ -2,6 +2,7 @@ import json
 import boto3
 import urllib3
 import os
+import time
 from datetime import datetime
 
 http = urllib3.PoolManager()
@@ -9,6 +10,9 @@ http = urllib3.PoolManager()
 def lambda_handler(event, context):
     """
     Lambda function to process image URLs by calling Flask server on EC2
+    
+    Measures and returns:
+    - lambda_ec2_call_time_ms: Time taken for HTTP call to EC2 and back (excluding parsing)
     """
     try:
         # Parse input
@@ -41,6 +45,9 @@ def lambda_handler(event, context):
             'timestamp': datetime.utcnow().isoformat()
         }
         
+        # Measure Lambda to EC2 round-trip latency
+        lambda_ec2_start = time.time()
+        
         # Make synchronous HTTP POST request to Flask server
         try:
             response = http.request(
@@ -51,21 +58,28 @@ def lambda_handler(event, context):
                 timeout=urllib3.Timeout(connect=5, read=55)
             )
             
+            lambda_ec2_end = time.time()
+            lambda_ec2_call_time_ms = (lambda_ec2_end - lambda_ec2_start) * 1000  # Convert to ms
+            
             flask_response = json.loads(response.data.decode('utf-8'))
             
             return {
                 'statusCode': response.status,
                 'body': json.dumps({
                     'message': 'Image processed successfully',
+                    'lambda_ec2_call_time_ms': lambda_ec2_call_time_ms,
                     'result': flask_response
                 })
             }
             
         except urllib3.exceptions.HTTPError as e:
+            lambda_ec2_end = time.time()
+            lambda_ec2_call_time_ms = (lambda_ec2_end - lambda_ec2_start) * 1000
             return {
                 'statusCode': 504,
                 'body': json.dumps({
                     'error': 'Failed to connect to EC2 Flask server',
+                    'lambda_ec2_call_time_ms': lambda_ec2_call_time_ms,
                     'details': str(e)
                 })
             }
