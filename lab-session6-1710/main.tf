@@ -16,7 +16,11 @@ data "aws_region" "current" {}
 
 # ==================== S3 BUCKET ====================
 resource "aws_s3_bucket" "image_bucket" {
-  bucket = "${var.project_name}-images-${data.aws_caller_identity.current.account_id}"
+  bucket = "${var.project_name}-images-${local.suffix}-${data.aws_caller_identity.current.account_id}"
+
+  tags = {
+    Name = "${var.project_name}-images-${local.suffix}"
+  }
 }
 
 resource "aws_s3_bucket_versioning" "image_bucket_versioning" {
@@ -159,7 +163,7 @@ resource "aws_security_group" "lambda_sg" {
 
 # ==================== IAM ROLES ====================
 resource "aws_iam_role" "lambda_role" {
-  name = "${var.project_name}-lambda-role"
+  name = "${var.project_name}-lambda-role-${local.suffix}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -203,7 +207,7 @@ resource "aws_iam_role" "lambda_role" {
 }
 
 resource "aws_iam_role" "ec2_role" {
-  name = "${var.project_name}-ec2-role"
+  name = "${var.project_name}-ec2-role-${local.suffix}"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -259,7 +263,7 @@ resource "tls_private_key" "flask_key" {
 }
 
 resource "aws_key_pair" "flask_key" {
-  key_name   = "${var.project_name}-key"
+  key_name   = "${var.project_name}-key-${local.suffix}"
   public_key = tls_private_key.flask_key.public_key_openssh
 }
 
@@ -288,7 +292,7 @@ resource "aws_instance" "flask_server" {
 
 # ==================== LAMBDA FUNCTION ====================
 resource "aws_lambda_function" "image_processor" {
-  function_name = "${var.project_name}-processor"
+  function_name = "${var.project_name}-processor-${local.suffix}"
   role         = aws_iam_role.lambda_role.arn
   handler      = "index.lambda_handler"
   runtime      = "python3.9"
@@ -338,6 +342,6 @@ resource "aws_vpc_endpoint" "s3" {
 
 # ==================== CLOUDWATCH LOGS ====================
 resource "aws_cloudwatch_log_group" "lambda_logs" {
-  name              = "/aws/lambda/${var.project_name}"
+  name              = "/aws/lambda/${var.project_name}-${local.suffix}"
   retention_in_days = 7
 }

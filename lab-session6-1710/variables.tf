@@ -5,7 +5,7 @@ variable "aws_region" {
 }
 
 variable "project_name" {
-  description = "Name of the project"
+  description = "Project name"
   type        = string
   default     = "ds252-hybrid"
 }
@@ -23,13 +23,31 @@ variable "instance_type" {
 }
 
 variable "lambda_timeout" {
-  description = "Lambda function timeout in seconds"
+  description = "Lambda function timeout"
   type        = number
   default     = 60
 }
 
 variable "lambda_memory" {
-  description = "Lambda function memory in MB"
+  description = "Lambda function memory"
   type        = number
   default     = 256
+}
+
+variable "random_suffix" {
+  description = "Random suffix for resource names to ensure uniqueness"
+  type        = string
+  default     = ""
+}
+
+locals {
+  # Use random suffix directly for unique naming
+  suffix = random_string.suffix.result
+}
+
+# Generate random string for unique naming
+resource "random_string" "suffix" {
+  length  = 5
+  special = false
+  upper   = false
 }

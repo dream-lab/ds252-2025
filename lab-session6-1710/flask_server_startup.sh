@@ -177,7 +177,6 @@ WorkingDirectory=/opt/flask-app
 Environment="PATH=/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin"
 Environment="AWS_REGION=ap-south-1"
 Environment="S3_BUCKET=${s3_bucket}"
-Environment="DYNAMODB_TABLE=${dynamodb_table}"
 ExecStart=/usr/bin/python3 /opt/flask-app/app.py
 Restart=on-failure
 RestartSec=10

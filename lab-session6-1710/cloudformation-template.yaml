@@ -37,7 +37,7 @@ Resources:
     DependsOn: ImageBucket
     Properties:
       Bucket: !Ref ImageBucket
-      PolicyText:
+      PolicyDocument:
         Version: '2012-10-17'
         Statement:
           - Sid: PublicReadGetObject

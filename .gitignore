@@ -11,4 +11,6 @@ test-payload.json
 tfplan*
 .terraform.lock.hcl
 *.pem
-.terraform.lock.hcl
+terraform.tfstate*
+lambda_function.zip
+*.zip
