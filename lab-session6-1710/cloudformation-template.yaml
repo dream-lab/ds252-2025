@@ -1,0 +1,449 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'DS252 Hybrid Architecture - CloudFormation Template'
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: ds252-hybrid-cf
+    Description: Project name
+  
+  InstanceType:
+    Type: String
+    Default: t2.micro
+    Description: EC2 instance type
+  
+  Environment:
+    Type: String
+    Default: lab
+    Description: Environment name
+
+Resources:
+  # ==================== S3 BUCKET ====================
+  ImageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectName}-images-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # ==================== DYNAMODB TABLE ====================
+  MetadataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${ProjectName}-metadata'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: image_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: image_id
+          KeyType: HASH
+
+  # ==================== VPC & NETWORKING ====================
+  MainVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+
+  MainSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MainVPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MainVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  MainRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MainVPC
+
+  MainRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref MainRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref MainSubnet
+      RouteTableId: !Ref MainRouteTable
+
+  # ==================== SECURITY GROUPS ====================
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for EC2 Flask server
+      VpcId: !Ref MainVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5000
+          ToPort: 5000
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  # ==================== IAM ROLES ====================
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-lambda-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: LambdaEC2Policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DeleteNetworkInterface
+                Resource: '*'
+
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-ec2-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: EC2S3DynamoPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub '${ImageBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt MetadataTable.Arn
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2Role
+
+  # ==================== EC2 INSTANCE ====================
+  FlaskServerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0c55b159cbfafe1f0
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref MainSubnet
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroup
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          set -e
+          yum update -y
+          yum install -y python3 python3-pip git
+          pip3 install flask boto3 requests
+          
+          mkdir -p /opt/flask-app
+          cd /opt/flask-app
+          
+          cat > app.py << 'APPEOF'
+          from flask import Flask, request, jsonify
+          import boto3
+          import requests
+          import os
+          import uuid
+          from datetime import datetime
+          import logging
+          
+          app = Flask(__name__)
+          logging.basicConfig(level=logging.INFO)
+          logger = logging.getLogger(__name__)
+          
+          s3_client = boto3.client('s3', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
+          dynamodb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
+          
+          S3_BUCKET = os.environ.get('S3_BUCKET')
+          DYNAMODB_TABLE = os.environ.get('DYNAMODB_TABLE')
+          
+          @app.route('/health', methods=['GET'])
+          def health_check():
+              return jsonify({'status': 'healthy', 'timestamp': datetime.utcnow().isoformat()}), 200
+          
+          @app.route('/process-image', methods=['POST'])
+          def process_image():
+              try:
+                  data = request.get_json()
+                  if not data:
+                      return jsonify({'error': 'No JSON data provided'}), 400
+                  
+                  image_url = data.get('image_url')
+                  if not image_url:
+                      return jsonify({'error': 'image_url is required'}), 400
+                  
+                  image_id = str(uuid.uuid4())
+                  logger.info(f"Processing image: {image_id} from URL: {image_url}")
+                  
+                  try:
+                      response = requests.get(image_url, timeout=30)
+                      response.raise_for_status()
+                      image_data = response.content
+                  except Exception as e:
+                      return jsonify({'error': f'Failed to download image: {str(e)}'}), 400
+                  
+                  file_extension = image_url.split('.')[-1].split('?')[0][:4]
+                  if file_extension not in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
+                      file_extension = 'jpg'
+                  
+                  s3_key = f"images/{image_id}.{file_extension}"
+                  
+                  try:
+                      s3_client.put_object(
+                          Bucket=S3_BUCKET,
+                          Key=s3_key,
+                          Body=image_data,
+                          ContentType=f'image/{file_extension}'
+                      )
+                      logger.info(f"Image uploaded to S3: s3://{S3_BUCKET}/{s3_key}")
+                  except Exception as e:
+                      return jsonify({'error': f'Failed to upload to S3: {str(e)}'}), 500
+                  
+                  try:
+                      table = dynamodb.Table(DYNAMODB_TABLE)
+                      metadata_item = {
+                          'image_id': image_id,
+                          's3_bucket': S3_BUCKET,
+                          's3_key': s3_key,
+                          'original_url': image_url,
+                          'file_extension': file_extension,
+                          'file_size': len(image_data),
+                          'status': 'processed',
+                          'created_at': datetime.utcnow().isoformat(),
+                          'processed_by': 'flask_ec2_server'
+                      }
+                      table.put_item(Item=metadata_item)
+                      logger.info(f"Metadata saved to DynamoDB for image: {image_id}")
+                  except Exception as e:
+                      return jsonify({'error': f'Failed to save metadata: {str(e)}'}), 500
+                  
+                  return jsonify({
+                      'success': True,
+                      'message': 'Image processed successfully',
+                      'image_id': image_id,
+                      's3_location': f's3://{S3_BUCKET}/{s3_key}',
+                      'file_size': len(image_data),
+                      'file_extension': file_extension,
+                      'timestamp': datetime.utcnow().isoformat()
+                  }), 200
+              except Exception as e:
+                  logger.error(f"Unexpected error: {str(e)}")
+                  return jsonify({'error': f'Unexpected error: {str(e)}'}), 500
+          
+          @app.route('/', methods=['GET'])
+          def root():
+              return jsonify({
+                  'service': 'DS252 Image Processing Flask Server',
+                  'version': '1.0',
+                  'endpoints': {
+                      '/health': 'Health check endpoint',
+                      '/process-image': 'POST endpoint to process image from URL'
+                  }
+              }), 200
+          
+          if __name__ == '__main__':
+              app.run(host='0.0.0.0', port=5000, debug=False)
+          APPEOF
+          
+          export AWS_REGION=us-east-1
+          
+          cat > /etc/systemd/system/flask-app.service << 'SERVICEEOF'
+          [Unit]
+          Description=DS252 Flask Image Processing Server
+          After=network.target
+          
+          [Service]
+          Type=simple
+          User=ec2-user
+          WorkingDirectory=/opt/flask-app
+          Environment="PATH=/usr/local/bin:/usr/bin:/usr/local/sbin:/usr/sbin"
+          Environment="AWS_REGION=us-east-1"
+          ExecStart=/usr/bin/python3 /opt/flask-app/app.py
+          Restart=on-failure
+          RestartSec=10
+          
+          [Install]
+          WantedBy=multi-user.target
+          SERVICEEOF
+          
+          systemctl daemon-reload
+          systemctl enable flask-app.service
+          systemctl start flask-app.service
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-flask-server'
+
+  # ==================== LAMBDA FUNCTION ====================
+  ImageProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-processor'
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 60
+      Environment:
+        Variables:
+          EC2_FLASK_URL: !Sub 'http://${FlaskServerInstance.PrivateIp}:5000'
+          S3_BUCKET: !Ref ImageBucket
+          DYNAMODB_TABLE: !Ref MetadataTable
+      Code:
+        ZipFile: |
+          import json
+          import urllib3
+          import os
+          from datetime import datetime
+          
+          http = urllib3.PoolManager()
+          
+          def lambda_handler(event, context):
+              try:
+                  body = event.get('body')
+                  if isinstance(body, str):
+                      params = json.loads(body)
+                  else:
+                      params = event
+                  
+                  image_url = params.get('image_url')
+                  
+                  if not image_url:
+                      return {
+                          'statusCode': 400,
+                          'body': json.dumps({'error': 'image_url is required'})
+                      }
+                  
+                  ec2_flask_url = os.environ.get('EC2_FLASK_URL')
+                  
+                  if not ec2_flask_url:
+                      return {
+                          'statusCode': 500,
+                          'body': json.dumps({'error': 'EC2_FLASK_URL not configured'})
+                      }
+                  
+                  payload = {
+                      'image_url': image_url,
+                      'timestamp': datetime.utcnow().isoformat()
+                  }
+                  
+                  try:
+                      response = http.request(
+                          'POST',
+                          f'{ec2_flask_url}/process-image',
+                          body=json.dumps(payload).encode('utf-8'),
+                          headers={'Content-Type': 'application/json'},
+                          timeout=urllib3.Timeout(connect=5, read=55)
+                      )
+                      
+                      flask_response = json.loads(response.data.decode('utf-8'))
+                      
+                      return {
+                          'statusCode': response.status,
+                          'body': json.dumps({
+                              'message': 'Image processed successfully',
+                              'result': flask_response
+                          })
+                      }
+                      
+                  except Exception as e:
+                      return {
+                          'statusCode': 504,
+                          'body': json.dumps({
+                              'error': 'Failed to connect to EC2 Flask server',
+                              'details': str(e)
+                          })
+                      }
+                  
+              except Exception as e:
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps({'error': str(e)})
+                  }
+
+  # ==================== CLOUDWATCH LOGS ====================
+  LambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectName}'
+      RetentionInDays: 7
+
+Outputs:
+  LambdaFunctionName:
+    Description: Lambda function name
+    Value: !Ref ImageProcessorFunction
+
+  LambdaFunctionArn:
+    Description: Lambda function ARN
+    Value: !GetAtt ImageProcessorFunction.Arn
+
+  EC2InstanceId:
+    Description: EC2 instance ID
+    Value: !Ref FlaskServerInstance
+
+  EC2InstancePublicIP:
+    Description: EC2 instance public IP
+    Value: !GetAtt FlaskServerInstance.PublicIp
+
+  EC2InstancePrivateIP:
+    Description: EC2 instance private IP
+    Value: !GetAtt FlaskServerInstance.PrivateIp
+
+  S3BucketName:
+    Description: S3 bucket name
+    Value: !Ref ImageBucket
+
+  DynamoDBTableName:
+    Description: DynamoDB table name
+    Value: !Ref MetadataTable
+
+  VPCId:
+    Description: VPC ID
+    Value: !Ref MainVPC

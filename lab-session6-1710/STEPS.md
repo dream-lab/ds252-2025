@@ -1,459 +1,956 @@
-# DS252 Lab Session 6 - Detailed Steps
+# DS252 Lab Session 6 - Complete Deployment Guide
 
-## Overview
-This lab demonstrates deploying serverless workflows using both Terraform and CloudFormation. We'll deploy two workflows: Lambda image ingestion and Step Functions classification pipeline.
+## Hybrid Architecture: Lambda + EC2 + S3 + DynamoDB
+
+This guide will walk you through deploying a hybrid AWS architecture using both **Terraform** and **CloudFormation**. Follow this step-by-step to reproduce the entire setup.
 
 ---
 
-## Part 1: Deploy Workflows with Terraform
+## ⚠️ Prerequisites (Must Complete First)
 
-### Step 1.1: Initialize Terraform Project
+### 1. AWS Account Setup
 ```bash
-# Navigate to the lab directory
-cd lab-session6-1710
+# Check if AWS CLI is installed
+aws --version
 
-# Initialize Terraform
+# If not installed, install AWS CLI v2
+# macOS:
+curl "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "AWSCLIV2.pkg"
+sudo installer -pkg AWSCLIV2.pkg -target /
+
+# Linux:
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+sudo ./aws/install
+```
+
+### 2. Configure AWS Credentials
+```bash
+# Configure AWS CLI with your credentials
+aws configure
+
+# You will be prompted for:
+# AWS Access Key ID: [paste your access key]
+# AWS Secret Access Key: [paste your secret key]
+# Default region name: us-east-1
+# Default output format: json
+
+# Verify configuration
+aws sts get-caller-identity
+# Expected output: Shows your AWS Account ID, User ARN, and UserId
+```
+
+### 3. Install Terraform
+```bash
+# macOS (using Homebrew)
+brew tap hashicorp/tap
+brew install hashicorp/tap/terraform
+
+# Linux (Ubuntu/Debian)
+sudo apt-get update && sudo apt-get install -y gnupg software-properties-common
+curl https://apt.releases.hashicorp.com/gpg | gpg --dearmor | sudo tee /usr/share/keyrings/hashicorp-archive-keyring.gpg > /dev/null
+sudo apt-add-repository "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
+sudo apt-get update && sudo apt-get install terraform
+
+# Verify installation
+terraform -version
+# Expected: Terraform v1.8.x or higher
+```
+
+### 4. Install jq (for JSON parsing)
+```bash
+# macOS
+brew install jq
+
+# Linux
+sudo apt-get install -y jq
+
+# Verify
+jq --version
+```
+
+### 5. Verify All Prerequisites
+```bash
+# Run this verification script
+echo "✅ Checking prerequisites..."
+aws --version && echo "AWS CLI: ✓"
+terraform -version && echo "Terraform: ✓"
+jq --version && echo "jq: ✓"
+aws sts get-caller-identity > /dev/null && echo "AWS Credentials: ✓"
+echo "All prerequisites completed!"
+```
+
+---
+
+## PART 1: Deploy with Terraform
+
+### Step 1.1: Verify All Files Exist
+```bash
+# Navigate to lab directory
+cd ds252-2025/lab-session6-1710
+
+# List all required files
+ls -1 *.tf *.py *.sh *.yaml
+
+# Expected output:
+# cloudformation-template.yaml
+# flask_app.py
+# flask_server_startup.sh
+# lambda_function.py
+# main.tf
+# outputs.tf
+# variables.tf
+```
+
+### Step 1.2: Initialize Terraform
+```bash
+# Initialize Terraform (downloads AWS provider plugin)
 terraform init
 
-# Verify initialization
+# Expected output:
+# Initializing the backend...
+# Initializing provider plugins...
+# Terraform has been successfully initialized!
+
+# Verify .terraform directory was created
 ls -la .terraform/
 ```
 
-### Step 1.2: Review Terraform Configuration
+### Step 1.3: Review Configuration Files
 ```bash
-# Review main configuration
-cat main.tf
+# Review main infrastructure code
+echo "=== main.tf ===" && head -30 main.tf
 
 # Review variables
-cat variables.tf
+echo "=== variables.tf ===" && cat variables.tf
 
 # Review outputs
-cat outputs.tf
+echo "=== outputs.tf ===" && cat outputs.tf
 
-# Review Lambda function code
-ls -la lambda-functions/
+# Review Lambda code
+echo "=== lambda_function.py ===" && cat lambda_function.py
+
+# Review Flask server code
+echo "=== flask_app.py ===" && head -50 flask_app.py
+
+# Review EC2 bootstrap script
+echo "=== flask_server_startup.sh ===" && head -30 flask_server_startup.sh
 ```
 
-### Step 1.3: Plan Infrastructure Deployment
+### Step 1.4: Validate Terraform Configuration
+```bash
+# Validate syntax and configuration
+terraform validate
+
+# Expected output:
+# Success! The configuration is valid.
+```
+
+### Step 1.5: Create and Review Terraform Plan
 ```bash
 # Create a plan to see what will be created
-terraform plan
-
-# Save plan to file for review
 terraform plan -out=tfplan
 
-# Review the plan
-terraform show tfplan
+# This will show:
+# - VPC creation
+# - Subnet creation
+# - Security groups
+# - IAM roles and policies
+# - EC2 instance
+# - S3 bucket
+# - DynamoDB table
+# - Lambda function
+
+# Save plan details to file for review
+terraform plan -out=tfplan > plan-details.txt
+cat plan-details.txt
 ```
 
-### Step 1.4: Deploy Infrastructure
+### Step 1.6: Deploy Infrastructure with Terraform
 ```bash
-# Apply the configuration
-terraform apply
-
-# Or apply using the saved plan
+# Apply the Terraform configuration
 terraform apply tfplan
 
-# Monitor the deployment progress
-# Expected resources:
-# - S3 bucket for images
-# - DynamoDB table for metadata
-# - IAM roles and policies
-# - Lambda functions
-# - Step Functions state machine
+# This will take 3-5 minutes to complete
+# You will see resource creation progress
+
+# Expected: "Apply complete! Resources: XX added, 0 changed, 0 destroyed."
 ```
 
-### Step 1.5: Verify Terraform Deployment
+### Step 1.7: Verify Terraform Deployment - Get Outputs
 ```bash
-# Check Terraform outputs
+# Display all outputs
 terraform output
 
-# Verify S3 bucket
-aws s3 ls | grep ds252
+# Expected output shows:
+# - ec2_instance_id
+# - ec2_instance_public_ip
+# - ec2_instance_private_ip
+# - lambda_function_name
+# - lambda_function_arn
+# - s3_bucket_name
+# - dynamodb_table_name
+# - vpc_id
 
-# Verify DynamoDB table
-aws dynamodb list-tables
+# Save outputs to variable for later use
+EC2_ID=$(terraform output -raw ec2_instance_id)
+EC2_PUBLIC_IP=$(terraform output -raw ec2_instance_public_ip)
+EC2_PRIVATE_IP=$(terraform output -raw ec2_instance_private_ip)
+LAMBDA_NAME=$(terraform output -raw lambda_function_name)
+S3_BUCKET=$(terraform output -raw s3_bucket_name)
+DYNAMODB_TABLE=$(terraform output -raw dynamodb_table_name)
 
-# Verify Lambda functions
-aws lambda list-functions --query 'Functions[?contains(FunctionName, `ds252`)]'
-
-# Verify Step Functions
-aws stepfunctions list-state-machines --query 'stateMachines[?contains(name, `ds252`)]'
+echo "EC2 ID: $EC2_ID"
+echo "EC2 Public IP: $EC2_PUBLIC_IP"
+echo "EC2 Private IP: $EC2_PRIVATE_IP"
+echo "Lambda Name: $LAMBDA_NAME"
+echo "S3 Bucket: $S3_BUCKET"
+echo "DynamoDB Table: $DYNAMODB_TABLE"
 ```
 
-### Step 1.6: Test Lambda Function 1 (Image Ingestion)
+### Step 1.8: Verify AWS Resources Created
 ```bash
-# Create test payload
-cat > test-image-ingestion.json << EOF
-{
-  "image_url": "https://example.com/sample-image.jpg",
-  "metadata": {
-    "source": "test",
-    "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  }
-}
-EOF
+# Check S3 bucket
+echo "=== Checking S3 ===" 
+aws s3 ls | grep hybrid
+aws s3api head-bucket --bucket $S3_BUCKET && echo "S3 bucket exists ✓"
 
-# Invoke the Lambda function
-aws lambda invoke \
-  --function-name ds252-image-ingestion \
-  --payload file://test-image-ingestion.json \
-  --output json \
-  response.json
+# Check DynamoDB table
+echo "=== Checking DynamoDB ==="
+aws dynamodb describe-table --table-name $DYNAMODB_TABLE --query 'Table.TableName'
 
-# Check the response
-cat response.json
+# Check EC2 instance
+echo "=== Checking EC2 ==="
+aws ec2 describe-instances --instance-ids $EC2_ID \
+  --query 'Reservations[0].Instances[0].[InstanceId,State.Name,PrivateIpAddress,PublicIpAddress]' \
+  --output table
 
-# Verify image was uploaded to S3
-aws s3 ls s3://ds252-image-bucket-$(aws sts get-caller-identity --query Account --output text)/
-
-# Check DynamoDB for metadata
-aws dynamodb scan --table-name ds252-metadata-table
+# Check Lambda function
+echo "=== Checking Lambda ==="
+aws lambda get-function --function-name $LAMBDA_NAME \
+  --query 'Configuration.[FunctionName,Runtime,Timeout]' \
+  --output table
 ```
 
-### Step 1.7: Test Step Functions Workflow
+### Step 1.9: Wait for EC2 Instance to be Ready
 ```bash
-# Create test payload for Step Functions
-cat > test-stepfunctions-payload.json << EOF
-{
-  "image_id": "test-image-001",
-  "preprocessing_config": {
-    "grayscale": true,
-    "flip": "horizontal",
-    "rotate": 90,
-    "resize": [224, 224]
-  }
-}
-EOF
+# Wait for EC2 to pass status checks (3-5 minutes)
+echo "Waiting for EC2 instance to be ready..."
 
-# Start Step Functions execution
-aws stepfunctions start-execution \
-  --state-machine-arn $(terraform output -raw stepfunctions_arn) \
-  --input file://test-stepfunctions-payload.json \
-  --name "test-execution-$(date +%s)"
+# Check instance status
+aws ec2 describe-instance-status --instance-ids $EC2_ID \
+  --query 'InstanceStatuses[0].[InstanceStatus.Status,SystemStatus.Status]'
 
-# Monitor execution
-aws stepfunctions list-executions \
-  --state-machine-arn $(terraform output -raw stepfunctions_arn) \
-  --max-items 5
-```
-
----
-
-## Part 2: Deploy Same Workflows with CloudFormation
-
-### Step 2.1: Review CloudFormation Templates
-```bash
-# Navigate to CloudFormation directory
-cd cloudformation/
-
-# Review main template
-cat template.yaml
-
-# Review nested templates
-ls -la nested-stacks/
-
-# Review Lambda function code (same as Terraform)
-ls -la lambda-functions/
-```
-
-### Step 2.2: Validate CloudFormation Template
-```bash
-# Validate the main template
-aws cloudformation validate-template \
-  --template-body file://template.yaml
-
-# Validate nested templates
-for template in nested-stacks/*.yaml; do
-  echo "Validating $template"
-  aws cloudformation validate-template \
-    --template-body file://$template
+# Keep checking until you see "ok" for both
+# Or run this loop:
+for i in {1..30}; do
+  STATUS=$(aws ec2 describe-instance-status --instance-ids $EC2_ID \
+    --query 'InstanceStatuses[0].InstanceStatus.Status' --output text 2>/dev/null)
+  
+  if [ "$STATUS" == "ok" ]; then
+    echo "✓ EC2 instance is ready!"
+    break
+  else
+    echo "Waiting... (attempt $i/30)"
+    sleep 10
+  fi
 done
 ```
 
-### Step 2.3: Deploy CloudFormation Stack
+### Step 1.10: Verify Flask Server is Running on EC2
 ```bash
-# Create the CloudFormation stack
-aws cloudformation create-stack \
-  --stack-name ds252-serverless-workflows \
-  --template-body file://template.yaml \
-  --parameters ParameterKey=ProjectName,ParameterValue=ds252 \
-               ParameterKey=Environment,ParameterValue=lab \
-  --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM
+# SSH into EC2 instance
+ssh -i ~/.ssh/your-key-pair.pem ec2-user@$EC2_PUBLIC_IP
 
-# Monitor stack creation
+# Inside EC2, check Flask service status:
+sudo systemctl status flask-app.service
+
+# Check Flask server logs:
+sudo journalctl -u flask-app.service -n 50
+
+# Test Flask server locally on EC2:
+curl http://localhost:5000/
+
+# Expected response: JSON with service info
+
+# Exit SSH
+exit
+```
+
+### Step 1.11: Test Lambda Function - Synchronous Call
+```bash
+# Create test payload with image URL
+cat > test-payload.json << 'EOF'
+{
+  "image_url": "https://httpbin.org/image/jpeg",
+  "timestamp": "2025-01-01T00:00:00Z"
+}
+EOF
+
+# Invoke Lambda function synchronously
+echo "Invoking Lambda function..."
+aws lambda invoke \
+  --function-name $LAMBDA_NAME \
+  --payload file://test-payload.json \
+  --output json \
+  lambda-response.json
+
+# Check the response
+echo "Lambda Response:"
+cat lambda-response.json
+jq . lambda-response.json
+
+# Extract the actual response body if needed
+aws lambda invoke \
+  --function-name $LAMBDA_NAME \
+  --payload file://test-payload.json \
+  response.txt && cat response.txt
+```
+
+### Step 1.12: Verify Image Processing in S3 and DynamoDB
+```bash
+# List images in S3 bucket
+echo "=== Images in S3 ==="
+aws s3 ls s3://$S3_BUCKET/images/
+
+# Get image count
+aws s3 ls s3://$S3_BUCKET/images/ --recursive --summarize | grep "Total Objects:"
+
+# Check DynamoDB for metadata
+echo "=== Metadata in DynamoDB ==="
+aws dynamodb scan \
+  --table-name $DYNAMODB_TABLE \
+  --output table
+
+# Get item count
+aws dynamodb scan \
+  --table-name $DYNAMODB_TABLE \
+  --select COUNT \
+  --output json | jq '.Count'
+
+# Query specific item
+IMAGE_ID=$(aws dynamodb scan \
+  --table-name $DYNAMODB_TABLE \
+  --select "ALL_ATTRIBUTES" \
+  --max-items 1 \
+  --output json | jq -r '.Items[0].image_id.S')
+
+echo "Querying image: $IMAGE_ID"
+aws dynamodb get-item \
+  --table-name $DYNAMODB_TABLE \
+  --key "{\"image_id\": {\"S\": \"$IMAGE_ID\"}}" \
+  --output json | jq '.'
+```
+
+### Step 1.13: Check Lambda Logs
+```bash
+# Get Lambda log group name
+LOG_GROUP="/aws/lambda/$LAMBDA_NAME"
+
+# List log streams
+aws logs describe-log-streams \
+  --log-group-name $LOG_GROUP \
+  --order-by LastEventTime \
+  --descending \
+  --max-items 5
+
+# Get latest log events
+aws logs tail $LOG_GROUP --follow
+
+# Or get specific log stream
+STREAM=$(aws logs describe-log-streams \
+  --log-group-name $LOG_GROUP \
+  --order-by LastEventTime \
+  --descending \
+  --max-items 1 \
+  --query 'logStreams[0].logStreamName' \
+  --output text)
+
+aws logs get-log-events \
+  --log-group-name $LOG_GROUP \
+  --log-stream-name $STREAM \
+  --output json | jq '.events[]'
+```
+
+### Step 1.14: Multiple Test Calls
+```bash
+# Run 5 test invocations
+for i in {1..5}; do
+  echo "Test call $i/5..."
+  
+  cat > test-payload-$i.json << EOF
+{
+  "image_url": "https://httpbin.org/image/jpeg?size=$((i*100))",
+  "test_number": $i
+}
+EOF
+
+  aws lambda invoke \
+    --function-name $LAMBDA_NAME \
+    --payload file://test-payload-$i.json \
+    response-$i.json
+  
+  echo "Response $i:"
+  jq '.StatusCode' response-$i.json
+  sleep 2
+done
+
+# Verify all images in S3
+echo "Total images processed:"
+aws s3 ls s3://$S3_BUCKET/images/ --recursive --summarize | grep "Total Objects:"
+
+# Verify DynamoDB item count
+echo "Total metadata records:"
+aws dynamodb scan \
+  --table-name $DYNAMODB_TABLE \
+  --select COUNT \
+  --output json | jq '.Count'
+```
+
+---
+
+## PART 2: Deploy with CloudFormation
+
+### Step 2.1: Review CloudFormation Template
+```bash
+# Check template file
+ls -la cloudformation-template.yaml
+
+# Validate template syntax
+aws cloudformation validate-template \
+  --template-body file://cloudformation-template.yaml
+
+# Expected: No errors
+
+# View template structure
+echo "=== CloudFormation Template Structure ==="
+head -50 cloudformation-template.yaml
+```
+
+### Step 2.2: Create CloudFormation Stack
+```bash
+# Create stack with default parameters
+aws cloudformation create-stack \
+  --stack-name ds252-hybrid-cf \
+  --template-body file://cloudformation-template.yaml \
+  --parameters \
+    ParameterKey=ProjectName,ParameterValue=ds252-hybrid-cf \
+    ParameterKey=InstanceType,ParameterValue=t2.micro \
+    ParameterKey=Environment,ParameterValue=lab
+
+# Expected: Returns StackId
+
+# Save stack name
+CF_STACK_NAME="ds252-hybrid-cf"
+echo "Created CloudFormation stack: $CF_STACK_NAME"
+```
+
+### Step 2.3: Monitor CloudFormation Stack Creation
+```bash
+# Check stack status
 aws cloudformation describe-stacks \
-  --stack-name ds252-serverless-workflows \
+  --stack-name $CF_STACK_NAME \
   --query 'Stacks[0].StackStatus'
 
-# Wait for stack creation to complete
-aws cloudformation wait stack-create-complete \
-  --stack-name ds252-serverless-workflows
+# Watch stack creation in real-time (continuous monitoring)
+watch -n 10 "aws cloudformation describe-stacks --stack-name $CF_STACK_NAME --query 'Stacks[0].StackStatus' --output text"
+
+# Or check periodically with a loop
+echo "Waiting for CloudFormation stack creation..."
+for i in {1..60}; do
+  STATUS=$(aws cloudformation describe-stacks \
+    --stack-name $CF_STACK_NAME \
+    --query 'Stacks[0].StackStatus' \
+    --output text)
+  
+  echo "[$i/60] Stack Status: $STATUS"
+  
+  if [[ $STATUS == *"COMPLETE"* ]]; then
+    echo "✓ Stack creation complete!"
+    break
+  elif [[ $STATUS == *"FAILED"* ]]; then
+    echo "✗ Stack creation failed!"
+    break
+  fi
+  
+  sleep 5
+done
 ```
 
-### Step 2.4: Verify CloudFormation Deployment
+### Step 2.4: Get CloudFormation Outputs
 ```bash
-# Check stack outputs
+# Get all stack outputs
 aws cloudformation describe-stacks \
-  --stack-name ds252-serverless-workflows \
-  --query 'Stacks[0].Outputs'
+  --stack-name $CF_STACK_NAME \
+  --query 'Stacks[0].Outputs' \
+  --output table
 
-# Verify resources (same as Terraform verification)
-aws s3 ls | grep ds252
-aws dynamodb list-tables
-aws lambda list-functions --query 'Functions[?contains(FunctionName, `ds252`)]'
-aws stepfunctions list-state-machines --query 'stateMachines[?contains(name, `ds252`)]'
+# Extract specific outputs
+CF_EC2_IP=$(aws cloudformation describe-stacks \
+  --stack-name $CF_STACK_NAME \
+  --query 'Stacks[0].Outputs[?OutputKey==`EC2InstancePublicIP`].OutputValue' \
+  --output text)
+
+CF_LAMBDA=$(aws cloudformation describe-stacks \
+  --stack-name $CF_STACK_NAME \
+  --query 'Stacks[0].Outputs[?OutputKey==`LambdaFunctionName`].OutputValue' \
+  --output text)
+
+CF_S3=$(aws cloudformation describe-stacks \
+  --stack-name $CF_STACK_NAME \
+  --query 'Stacks[0].Outputs[?OutputKey==`S3BucketName`].OutputValue' \
+  --output text)
+
+CF_DDB=$(aws cloudformation describe-stacks \
+  --stack-name $CF_STACK_NAME \
+  --query 'Stacks[0].Outputs[?OutputKey==`DynamoDBTableName`].OutputValue' \
+  --output text)
+
+echo "CF Lambda: $CF_LAMBDA"
+echo "CF S3: $CF_S3"
+echo "CF DynamoDB: $CF_DDB"
+echo "CF EC2 IP: $CF_EC2_IP"
 ```
 
-### Step 2.5: Test CloudFormation Deployed Workflows
+### Step 2.5: Wait for CloudFormation EC2 Instance
 ```bash
-# Test Lambda Function 1 (same test as Terraform)
+# Check EC2 status from CloudFormation
+CF_EC2_ID=$(aws cloudformation describe-stacks \
+  --stack-name $CF_STACK_NAME \
+  --query 'Stacks[0].Outputs[?OutputKey==`EC2InstanceId`].OutputValue' \
+  --output text)
+
+echo "CloudFormation EC2 Instance ID: $CF_EC2_ID"
+
+# Wait for EC2 to be ready
+for i in {1..30}; do
+  STATUS=$(aws ec2 describe-instance-status --instance-ids $CF_EC2_ID \
+    --query 'InstanceStatuses[0].InstanceStatus.Status' --output text 2>/dev/null)
+  
+  if [ "$STATUS" == "ok" ]; then
+    echo "✓ EC2 instance is ready!"
+    break
+  else
+    echo "Waiting... (attempt $i/30)"
+    sleep 10
+  fi
+done
+```
+
+### Step 2.6: Verify CloudFormation Resources
+```bash
+# List all resources in stack
+aws cloudformation describe-stack-resources \
+  --stack-name $CF_STACK_NAME \
+  --query 'StackResources[*].[LogicalResourceId,ResourceType,ResourceStatus]' \
+  --output table
+
+# Verify S3 bucket exists
+aws s3 ls | grep cf
+
+# Verify DynamoDB table
+aws dynamodb describe-table --table-name $CF_DDB \
+  --query 'Table.TableName'
+
+# Verify Lambda function
+aws lambda get-function --function-name $CF_LAMBDA \
+  --query 'Configuration.FunctionName'
+```
+
+### Step 2.7: Test CloudFormation Lambda Function
+```bash
+# Create test payload
+cat > test-payload-cf.json << 'EOF'
+{
+  "image_url": "https://httpbin.org/image/jpeg",
+  "timestamp": "2025-01-01T00:00:00Z",
+  "source": "cloudformation"
+}
+EOF
+
+# Invoke CloudFormation Lambda
+echo "Invoking CloudFormation Lambda..."
 aws lambda invoke \
-  --function-name ds252-image-ingestion-cf \
-  --payload file://../test-image-ingestion.json \
+  --function-name $CF_LAMBDA \
+  --payload file://test-payload-cf.json \
   --output json \
-  response-cf.json
+  cf-lambda-response.json
 
-# Test Step Functions (same test as Terraform)
-aws stepfunctions start-execution \
-  --state-machine-arn $(aws cloudformation describe-stacks \
-    --stack-name ds252-serverless-workflows \
-    --query 'Stacks[0].Outputs[?OutputKey==`StepFunctionsArn`].OutputValue' \
-    --output text) \
-  --input file://../test-stepfunctions-payload.json \
-  --name "test-execution-cf-$(date +%s)"
+# Check response
+echo "CloudFormation Lambda Response:"
+cat cf-lambda-response.json
+jq . cf-lambda-response.json
+```
+
+### Step 2.8: Verify CloudFormation Image Processing
+```bash
+# List images in S3 from CloudFormation
+echo "=== Images in CloudFormation S3 ==="
+aws s3 ls s3://$CF_S3/images/
+
+# Check CloudFormation DynamoDB
+echo "=== CloudFormation DynamoDB Metadata ==="
+aws dynamodb scan \
+  --table-name $CF_DDB \
+  --output table
+
+# Get count
+aws dynamodb scan \
+  --table-name $CF_DDB \
+  --select COUNT \
+  --output json | jq '.Count'
 ```
 
 ---
 
-## Part 3: Benchmark and Visualize Workflows
+## PART 3: Comparison Testing
 
-### Step 3.1: Set Up Load Testing Environment
+### Step 3.1: Prepare Comparison Test Data
 ```bash
-# Navigate to benchmarking directory
-cd ../benchmarking/
+# Create multiple test payloads
+mkdir -p test-data
 
-# Install required Python packages
-pip install -r requirements.txt
-
-# Verify load testing script
-cat load_test.py
-```
-
-### Step 3.2: Prepare Test Data
-```bash
-# Create test image URLs
-cat > test_images.json << EOF
-[
-  "https://example.com/image1.jpg",
-  "https://example.com/image2.jpg",
-  "https://example.com/image3.jpg",
-  "https://example.com/image4.jpg",
-  "https://example.com/image5.jpg"
-]
+for i in {1..10}; do
+  cat > test-data/payload-$i.json << EOF
+{
+  "image_url": "https://httpbin.org/image/jpeg?size=$((i*50))",
+  "test_number": $i,
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
 EOF
+done
 
-# Create test metadata
-cat > test_metadata.json << EOF
-[
-  {"image_id": "test-001", "source": "benchmark"},
-  {"image_id": "test-002", "source": "benchmark"},
-  {"image_id": "test-003", "source": "benchmark"},
-  {"image_id": "test-004", "source": "benchmark"},
-  {"image_id": "test-005", "source": "benchmark"}
-]
-EOF
+echo "Created 10 test payloads"
 ```
 
-### Step 3.3: Benchmark Terraform-Deployed Workflows
+### Step 3.2: Test Terraform Deployment Multiple Times
 ```bash
-# Benchmark Lambda Function 1 (1 RPS for 30 seconds)
-python load_test.py \
-  --workflow lambda-ingestion \
-  --target terraform \
-  --rps 1 \
-  --duration 30 \
-  --output terraform-lambda-results.json
+# Run 5 invocations on Terraform deployment
+echo "=== Testing Terraform Deployment ==="
+TERRAFORM_RESULTS=()
 
-# Benchmark Step Functions (1 RPS for 30 seconds)
-python load_test.py \
-  --workflow stepfunctions \
-  --target terraform \
-  --rps 1 \
-  --duration 30 \
-  --output terraform-stepfunctions-results.json
+for i in {1..5}; do
+  echo "Terraform test $i/5..."
+  
+  START=$(date +%s%N)
+  
+  aws lambda invoke \
+    --function-name $LAMBDA_NAME \
+    --payload file://test-data/payload-$i.json \
+    tf-response-$i.json
+  
+  END=$(date +%s%N)
+  DURATION=$(( (END - START) / 1000000 ))  # Convert to ms
+  
+  STATUS=$(jq '.StatusCode' tf-response-$i.json)
+  TERRAFORM_RESULTS+=("Response $i: Status=$STATUS, Duration=${DURATION}ms")
+  
+  echo "Response $i: Status Code = $STATUS, Duration = ${DURATION}ms"
+  sleep 2
+done
 
-# Monitor CloudWatch metrics
-aws cloudwatch get-metric-statistics \
-  --namespace AWS/Lambda \
-  --metric-name Duration \
-  --dimensions Name=FunctionName,Value=ds252-image-ingestion \
-  --start-time $(date -u -d '5 minutes ago' +%Y-%m-%dT%H:%M:%SZ) \
-  --end-time $(date -u +%Y-%m-%dT%H:%M:%SZ) \
-  --period 60 \
-  --statistics Average,Maximum
+# Summary
+echo "=== Terraform Results ==="
+for result in "${TERRAFORM_RESULTS[@]}"; do
+  echo "$result"
+done
 ```
 
-### Step 3.4: Benchmark CloudFormation-Deployed Workflows
+### Step 3.3: Test CloudFormation Deployment Multiple Times
 ```bash
-# Benchmark Lambda Function 1 (1 RPS for 30 seconds)
-python load_test.py \
-  --workflow lambda-ingestion \
-  --target cloudformation \
-  --rps 1 \
-  --duration 30 \
-  --output cloudformation-lambda-results.json
+# Run 5 invocations on CloudFormation deployment
+echo "=== Testing CloudFormation Deployment ==="
+CF_RESULTS=()
 
-# Benchmark Step Functions (1 RPS for 30 seconds)
-python load_test.py \
-  --workflow stepfunctions \
-  --target cloudformation \
-  --rps 1 \
-  --duration 30 \
-  --output cloudformation-stepfunctions-results.json
+for i in {1..5}; do
+  echo "CloudFormation test $i/5..."
+  
+  START=$(date +%s%N)
+  
+  aws lambda invoke \
+    --function-name $CF_LAMBDA \
+    --payload file://test-data/payload-$((i+5)).json \
+    cf-response-$i.json
+  
+  END=$(date +%s%N)
+  DURATION=$(( (END - START) / 1000000 ))  # Convert to ms
+  
+  STATUS=$(jq '.StatusCode' cf-response-$i.json)
+  CF_RESULTS+=("Response $i: Status=$STATUS, Duration=${DURATION}ms")
+  
+  echo "Response $i: Status Code = $STATUS, Duration = ${DURATION}ms"
+  sleep 2
+done
+
+# Summary
+echo "=== CloudFormation Results ==="
+for result in "${CF_RESULTS[@]}"; do
+  echo "$result"
+done
 ```
 
-### Step 3.5: Analyze Performance Results
+### Step 3.4: Compare Data in Both S3 Buckets
 ```bash
-# Run analysis script
-python analyze_results.py \
-  --terraform-lambda terraform-lambda-results.json \
-  --terraform-stepfunctions terraform-stepfunctions-results.json \
-  --cloudformation-lambda cloudformation-lambda-results.json \
-  --cloudformation-stepfunctions cloudformation-stepfunctions-results.json \
-  --output analysis-report.html
+# Count images in Terraform S3
+echo "=== S3 Comparison ==="
+TF_COUNT=$(aws s3 ls s3://$S3_BUCKET/images/ --recursive --summarize | grep "Total Objects:" | awk '{print $NF}')
+CF_COUNT=$(aws s3 ls s3://$CF_S3/images/ --recursive --summarize | grep "Total Objects:" | awk '{print $NF}')
 
-# Generate comparison charts
-python generate_charts.py \
-  --input-dir . \
-  --output-dir charts/
+echo "Terraform S3 Images: $TF_COUNT"
+echo "CloudFormation S3 Images: $CF_COUNT"
 
-# View results
-open analysis-report.html
+# List both
+echo "Terraform images:"
+aws s3 ls s3://$S3_BUCKET/images/ --recursive
+
+echo "CloudFormation images:"
+aws s3 ls s3://$CF_S3/images/ --recursive
 ```
 
-### Step 3.6: Cost Analysis
+### Step 3.5: Compare Data in Both DynamoDB Tables
 ```bash
-# Get cost data for the last hour
-aws ce get-cost-and-usage \
-  --time-period Start=$(date -u -d '1 hour ago' +%Y-%m-%d),End=$(date -u +%Y-%m-%d) \
-  --granularity HOURLY \
-  --metrics BlendedCost \
-  --group-by Type=DIMENSION,Key=SERVICE
+# Compare DynamoDB tables
+echo "=== DynamoDB Comparison ==="
 
-# Analyze Lambda costs
-python cost_analysis.py \
-  --terraform-results terraform-lambda-results.json \
-  --cloudformation-results cloudformation-lambda-results.json \
-  --output cost-comparison.json
+TF_ITEMS=$(aws dynamodb scan --table-name $DYNAMODB_TABLE --select COUNT --output json | jq '.Count')
+CF_ITEMS=$(aws dynamodb scan --table-name $CF_DDB --select COUNT --output json | jq '.Count')
+
+echo "Terraform DynamoDB Items: $TF_ITEMS"
+echo "CloudFormation DynamoDB Items: $CF_ITEMS"
+
+# Show all items from both
+echo ""
+echo "Terraform metadata:"
+aws dynamodb scan --table-name $DYNAMODB_TABLE --output table
+
+echo ""
+echo "CloudFormation metadata:"
+aws dynamodb scan --table-name $CF_DDB --output table
 ```
 
-### Step 3.7: Generate Final Report
+### Step 3.6: Check Lambda Logs from Both
 ```bash
-# Create comprehensive report
-python generate_report.py \
-  --terraform-results terraform-*-results.json \
-  --cloudformation-results cloudformation-*-results.json \
-  --cost-analysis cost-comparison.json \
-  --output final-lab-report.md
+# Compare Lambda logs
+echo "=== Lambda Logs Comparison ==="
 
-# Convert to PDF (optional)
-pandoc final-lab-report.md -o final-lab-report.pdf
+# Terraform Lambda logs
+TF_LOG_GROUP="/aws/lambda/$LAMBDA_NAME"
+TF_STREAM=$(aws logs describe-log-streams --log-group-name $TF_LOG_GROUP --order-by LastEventTime --descending --max-items 1 --query 'logStreams[0].logStreamName' --output text)
 
-# View the report
-cat final-lab-report.md
+echo "Terraform Lambda Logs:"
+aws logs get-log-events --log-group-name $TF_LOG_GROUP --log-stream-name $TF_STREAM --output json | jq '.events[-5:] | .[]' 
+
+# CloudFormation Lambda logs
+CF_LOG_GROUP="/aws/lambda/$CF_LAMBDA"
+CF_STREAM=$(aws logs describe-log-streams --log-group-name $CF_LOG_GROUP --order-by LastEventTime --descending --max-items 1 --query 'logStreams[0].logStreamName' --output text)
+
+echo ""
+echo "CloudFormation Lambda Logs:"
+aws logs get-log-events --log-group-name $CF_LOG_GROUP --log-stream-name $CF_STREAM --output json | jq '.events[-5:] | .[]'
 ```
 
 ---
 
-## Cleanup Steps
+## PART 4: Cleanup and Destruction
 
-### Cleanup Terraform Resources
+### Step 4.1: Destroy Terraform Resources
 ```bash
-# Navigate back to main directory
-cd ..
+# Destroy all Terraform-managed resources
+echo "Destroying Terraform resources..."
+terraform destroy -auto-approve
 
-# Destroy Terraform resources
-terraform destroy
-
-# Confirm destruction
+# Verify destruction
+echo "Verifying Terraform destruction..."
 terraform show
+
+# Check that EC2 instance is terminated
+aws ec2 describe-instances --instance-ids $EC2_ID \
+  --query 'Reservations[0].Instances[0].State.Name'
+
+# Expected: terminated or in terminating state
 ```
 
-### Cleanup CloudFormation Resources
+### Step 4.2: Delete CloudFormation Stack
 ```bash
 # Delete CloudFormation stack
-aws cloudformation delete-stack \
-  --stack-name ds252-serverless-workflows
+echo "Deleting CloudFormation stack..."
+aws cloudformation delete-stack --stack-name $CF_STACK_NAME
 
-# Wait for deletion
-aws cloudformation wait stack-delete-complete \
-  --stack-name ds252-serverless-workflows
+# Monitor deletion
+echo "Waiting for stack deletion..."
+for i in {1..30}; do
+  STATUS=$(aws cloudformation describe-stacks \
+    --stack-name $CF_STACK_NAME \
+    --query 'Stacks[0].StackStatus' \
+    --output text 2>&1)
+  
+  if [[ $STATUS == *"DELETE_COMPLETE"* ]]; then
+    echo "✓ Stack deleted!"
+    break
+  elif [[ $STATUS == *"does not exist"* ]]; then
+    echo "✓ Stack deleted!"
+    break
+  else
+    echo "[$i/30] Stack Status: $STATUS"
+    sleep 5
+  fi
+done
 
 # Verify deletion
-aws cloudformation describe-stacks \
-  --stack-name ds252-serverless-workflows
+aws cloudformation describe-stacks --stack-name $CF_STACK_NAME 2>&1 | grep -q "does not exist" && echo "Stack successfully deleted"
 ```
 
-### Cleanup Test Files
+### Step 4.3: Clean Up Test Files
 ```bash
-# Remove test files
+# Remove local test files
 rm -f test-*.json
 rm -f response*.json
-rm -f *.html
-rm -f *.pdf
-
-# Remove Terraform plan files
+rm -f cf-*.json
+rm -f tf-*.json
 rm -f tfplan
+rm -rf test-data/
+
+echo "Test files cleaned up"
+
+# Verify cleanup
+ls -la *.json 2>/dev/null || echo "No JSON test files remaining"
+```
+
+### Step 4.4: Remove Terraform State Files (Optional)
+```bash
+# WARNING: Only do this if you don't need to manage resources later
+rm -rf .terraform/
+rm -f .terraform.lock.hcl
+rm -f terraform.tfstate*
+
+echo "Terraform state cleared"
 ```
 
 ---
 
-## Troubleshooting
+## 📊 Summary Comparison Script
 
-### Common Issues and Solutions
+Create this script to get a full comparison:
 
-1. **Terraform State Lock Issues**
-   ```bash
-   terraform force-unlock <LOCK_ID>
-   ```
+```bash
+# Save as: compare.sh
 
-2. **CloudFormation Stack Rollback**
-   ```bash
-   aws cloudformation describe-stack-events \
-     --stack-name ds252-serverless-workflows \
-     --query 'StackEvents[?ResourceStatus==`CREATE_FAILED`]'
-   ```
+#!/bin/bash
 
-3. **Lambda Function Timeout**
-   ```bash
-   aws lambda update-function-configuration \
-     --function-name ds252-image-ingestion \
-     --timeout 300
-   ```
+echo "╔════════════════════════════════════════════╗"
+echo "║  TERRAFORM vs CLOUDFORMATION COMPARISON    ║"
+echo "╚════════════════════════════════════════════╝"
 
-4. **Step Functions Execution Issues**
-   ```bash
-   aws stepfunctions describe-execution \
-     --execution-arn <EXECUTION_ARN>
-   ```
+# Terraform data
+TF_S3=$(terraform output -raw s3_bucket_name 2>/dev/null)
+TF_DDB=$(terraform output -raw dynamodb_table_name 2>/dev/null)
+TF_LAMBDA=$(terraform output -raw lambda_function_name 2>/dev/null)
 
-5. **Permission Issues**
-   ```bash
-   aws sts get-caller-identity
-   aws iam list-attached-user-policies --user-name <USERNAME>
-   ```
+# CloudFormation data
+CF_STACK="ds252-hybrid-cf"
+CF_S3=$(aws cloudformation describe-stacks --stack-name $CF_STACK --query 'Stacks[0].Outputs[?OutputKey==`S3BucketName`].OutputValue' --output text 2>/dev/null)
+CF_DDB=$(aws cloudformation describe-stacks --stack-name $CF_STACK --query 'Stacks[0].Outputs[?OutputKey==`DynamoDBTableName`].OutputValue' --output text 2>/dev/null)
+CF_LAMBDA=$(aws cloudformation describe-stacks --stack-name $CF_STACK --query 'Stacks[0].Outputs[?OutputKey==`LambdaFunctionName`].OutputValue' --output text 2>/dev/null)
+
+echo ""
+echo "S3 Buckets:"
+echo "  Terraform: $TF_S3"
+echo "  CloudFormation: $CF_S3"
+
+echo ""
+echo "DynamoDB Tables:"
+echo "  Terraform: $TF_DDB"
+echo "  CloudFormation: $CF_DDB"
+
+echo ""
+echo "Lambda Functions:"
+echo "  Terraform: $TF_LAMBDA"
+echo "  CloudFormation: $CF_LAMBDA"
+
+echo ""
+echo "Image Counts:"
+TF_IMG=$(aws s3 ls s3://$TF_S3/images/ --recursive --summarize 2>/dev/null | grep "Total Objects:" | awk '{print $NF}')
+CF_IMG=$(aws s3 ls s3://$CF_S3/images/ --recursive --summarize 2>/dev/null | grep "Total Objects:" | awk '{print $NF}')
+echo "  Terraform: $TF_IMG"
+echo "  CloudFormation: $CF_IMG"
+
+echo ""
+echo "DynamoDB Item Counts:"
+TF_ITEMS=$(aws dynamodb scan --table-name $TF_DDB --select COUNT 2>/dev/null | jq '.Count')
+CF_ITEMS=$(aws dynamodb scan --table-name $CF_DDB --select COUNT 2>/dev/null | jq '.Count')
+echo "  Terraform: $TF_ITEMS"
+echo "  CloudFormation: $CF_ITEMS"
+```
 
 ---
 
-## Expected Results
+## ✅ Verification Checklist
 
-After completing all parts, you should have:
+Use this checklist to verify your deployment:
 
-1. **Terraform Deployment**: Fully functional serverless workflows deployed via Terraform
-2. **CloudFormation Deployment**: Identical workflows deployed via CloudFormation
-3. **Performance Metrics**: Comparative analysis of both deployments
-4. **Cost Analysis**: Cost comparison between deployment methods
-5. **Final Report**: Comprehensive analysis document
+- [ ] AWS CLI configured and authenticated
+- [ ] Terraform initialized successfully
+- [ ] Terraform plan shows all resources
+- [ ] Terraform apply completed without errors
+- [ ] Terraform outputs display correctly
+- [ ] EC2 instance running and status checks passing
+- [ ] Flask server running on EC2 (port 5000)
+- [ ] Lambda function invocation successful
+- [ ] Images uploaded to S3
+- [ ] Metadata saved to DynamoDB
+- [ ] CloudFormation template validates
+- [ ] CloudFormation stack created successfully
+- [ ] CloudFormation resources match Terraform
+- [ ] Both S3 buckets have images
+- [ ] Both DynamoDB tables have metadata
+- [ ] Lambda logs show successful executions
+- [ ] Comparison tests completed
+- [ ] Cleanup completed (if destroying)
 
-The lab demonstrates the practical differences between Terraform and CloudFormation in managing complex AWS serverless architectures.
+---
+
+## 🆘 Quick Troubleshooting
+
+### Problem: Terraform init fails
+```bash
+# Solution: Check internet connection and AWS credentials
+aws sts get-caller-identity
+rm -rf .terraform/
+terraform init
+```
+
+### Problem: EC2 takes too long to initialize
+```bash
+# Solution: Check EC2 user data logs
+aws ssm start-session --target $EC2_ID
+tail -f /var/log/cloud-init-output.log
+```
+
+### Problem: Lambda can't connect to Flask server
+```bash
+# Solution: Verify security group and networking
+aws ec2 describe-security-groups --query 'SecurityGroups[?GroupName==`*flask*`]'
+```
+
+### Problem: S3 bucket doesn't exist
+```bash
+# Solution: Check if deployment completed successfully
+terraform output s3_bucket_name
+aws s3api head-bucket --bucket $S3_BUCKET
+```
+
+### Problem: DynamoDB table is empty
+```bash
+# Solution: Check Lambda execution and logs
+aws logs tail /aws/lambda/$LAMBDA_NAME --follow
+```
+
+---
+
+## 📝 Notes
+
+- All commands assume you're in the `ds252-2025/lab-session6-1710` directory
+- Replace `$VARIABLE` with actual values if needed
+- Keep outputs saved for reference
+- Don't skip the prerequisite verification
+- Delete resources when done to avoid AWS charges

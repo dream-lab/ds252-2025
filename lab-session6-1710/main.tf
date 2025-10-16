@@ -1,4 +1,3 @@
-# Configure the AWS Provider
 terraform {
   required_providers {
     aws = {
@@ -12,15 +11,12 @@ provider "aws" {
   region = var.aws_region
 }
 
-# Data source to get the current AWS account ID
 data "aws_caller_identity" "current" {}
-
-# Data source to get the current AWS region
 data "aws_region" "current" {}
 
-# S3 bucket for storing images
+# ==================== S3 BUCKET ====================
 resource "aws_s3_bucket" "image_bucket" {
-  bucket = "${var.project_name}-image-bucket-${data.aws_caller_identity.current.account_id}"
+  bucket = "${var.project_name}-images-${data.aws_caller_identity.current.account_id}"
 }
 
 resource "aws_s3_bucket_versioning" "image_bucket_versioning" {
@@ -39,9 +35,9 @@ resource "aws_s3_bucket_public_access_block" "image_bucket_pab" {
   restrict_public_buckets = true
 }
 
-# DynamoDB table for metadata
+# ==================== DYNAMODB TABLE ====================
 resource "aws_dynamodb_table" "metadata_table" {
-  name           = "${var.project_name}-metadata-table"
+  name           = "${var.project_name}-metadata"
   billing_mode   = "PAY_PER_REQUEST"
   hash_key       = "image_id"
 
@@ -51,12 +47,108 @@ resource "aws_dynamodb_table" "metadata_table" {
   }
 
   tags = {
-    Name        = "${var.project_name}-metadata-table"
+    Name        = "${var.project_name}-metadata"
     Environment = var.environment
   }
 }
 
-# IAM role for Lambda functions
+# ==================== VPC & SECURITY ====================
+resource "aws_vpc" "main" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+
+  tags = {
+    Name = "${var.project_name}-vpc"
+  }
+}
+
+resource "aws_subnet" "main" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.1.0/24"
+  availability_zone       = data.aws_region.current.name
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name = "${var.project_name}-subnet"
+  }
+}
+
+resource "aws_internet_gateway" "main" {
+  vpc_id = aws_vpc.main.id
+
+  tags = {
+    Name = "${var.project_name}-igw"
+  }
+}
+
+resource "aws_route_table" "main" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block      = "0.0.0.0/0"
+    gateway_id      = aws_internet_gateway.main.id
+  }
+
+  tags = {
+    Name = "${var.project_name}-rt"
+  }
+}
+
+resource "aws_route_table_association" "main" {
+  subnet_id      = aws_subnet.main.id
+  route_table_id = aws_route_table.main.id
+}
+
+resource "aws_security_group" "ec2_sg" {
+  name        = "${var.project_name}-ec2-sg"
+  description = "Security group for EC2 Flask server"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    from_port   = 5000
+    to_port     = 5000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.project_name}-ec2-sg"
+  }
+}
+
+resource "aws_security_group" "lambda_sg" {
+  name        = "${var.project_name}-lambda-sg"
+  description = "Security group for Lambda function"
+  vpc_id      = aws_vpc.main.id
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.project_name}-lambda-sg"
+  }
+}
+
+# ==================== IAM ROLES ====================
 resource "aws_iam_role" "lambda_role" {
   name = "${var.project_name}-lambda-role"
 
@@ -74,7 +166,6 @@ resource "aws_iam_role" "lambda_role" {
   })
 }
 
-# IAM policy for Lambda functions
 resource "aws_iam_role_policy" "lambda_policy" {
   name = "${var.project_name}-lambda-policy"
   role = aws_iam_role.lambda_role.id
@@ -94,38 +185,18 @@ resource "aws_iam_role_policy" "lambda_policy" {
       {
         Effect = "Allow"
         Action = [
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:DeleteObject"
+          "ec2:CreateNetworkInterface",
+          "ec2:DescribeNetworkInterfaces",
+          "ec2:DeleteNetworkInterface"
         ]
-        Resource = "${aws_s3_bucket.image_bucket.arn}/*"
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:ListBucket"
-        ]
-        Resource = aws_s3_bucket.image_bucket.arn
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "dynamodb:GetItem",
-          "dynamodb:PutItem",
-          "dynamodb:UpdateItem",
-          "dynamodb:DeleteItem",
-          "dynamodb:Query",
-          "dynamodb:Scan"
-        ]
-        Resource = aws_dynamodb_table.metadata_table.arn
+        Resource = "*"
       }
     ]
   })
 }
 
-# IAM role for Step Functions
-resource "aws_iam_role" "stepfunctions_role" {
-  name = "${var.project_name}-stepfunctions-role"
+resource "aws_iam_role" "ec2_role" {
+  name = "${var.project_name}-ec2-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -134,17 +205,16 @@ resource "aws_iam_role" "stepfunctions_role" {
         Action = "sts:AssumeRole"
         Effect = "Allow"
         Principal = {
-          Service = "states.amazonaws.com"
+          Service = "ec2.amazonaws.com"
         }
       }
     ]
   })
 }
 
-# IAM policy for Step Functions
-resource "aws_iam_role_policy" "stepfunctions_policy" {
-  name = "${var.project_name}-stepfunctions-policy"
-  role = aws_iam_role.stepfunctions_role.id
+resource "aws_iam_role_policy" "ec2_policy" {
+  name = "${var.project_name}-ec2-policy"
+  role = aws_iam_role.ec2_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -152,22 +222,16 @@ resource "aws_iam_role_policy" "stepfunctions_policy" {
       {
         Effect = "Allow"
         Action = [
-          "lambda:InvokeFunction"
+          "s3:PutObject",
+          "s3:GetObject"
         ]
-        Resource = [
-          aws_lambda_function.fetch_image.arn,
-          aws_lambda_function.preprocessing.arn,
-          aws_lambda_function.alexnet_inference.arn,
-          aws_lambda_function.resnet_inference.arn,
-          aws_lambda_function.mobilenet_inference.arn,
-          aws_lambda_function.aggregator.arn
-        ]
+        Resource = "${aws_s3_bucket.image_bucket.arn}/*"
       },
       {
         Effect = "Allow"
         Action = [
-          "dynamodb:GetItem",
           "dynamodb:PutItem",
+          "dynamodb:GetItem",
           "dynamodb:UpdateItem"
         ]
         Resource = aws_dynamodb_table.metadata_table.arn
@@ -176,185 +240,50 @@ resource "aws_iam_role_policy" "stepfunctions_policy" {
   })
 }
 
-# Lambda function for image ingestion
-resource "aws_lambda_function" "image_ingestion" {
-  filename         = "lambda_functions.zip"
-  function_name    = "${var.project_name}-image-ingestion"
+resource "aws_iam_instance_profile" "ec2_profile" {
+  name = "${var.project_name}-ec2-profile"
+  role = aws_iam_role.ec2_role.name
+}
+
+# ==================== EC2 INSTANCE ====================
+resource "aws_instance" "flask_server" {
+  ami                    = "ami-0c55b159cbfafe1f0"  # Amazon Linux 2
+  instance_type          = var.instance_type
+  subnet_id              = aws_subnet.main.id
+  iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
+  vpc_security_group_ids = [aws_security_group.ec2_sg.id]
+
+  user_data = base64encode(file("${path.module}/flask_server_startup.sh"))
+
+  tags = {
+    Name = "${var.project_name}-flask-server"
+  }
+}
+
+# ==================== LAMBDA FUNCTION ====================
+resource "aws_lambda_function" "image_processor" {
+  filename         = "lambda_function.zip"
+  function_name    = "${var.project_name}-processor"
   role            = aws_iam_role.lambda_role.arn
-  handler         = "image_ingestion.lambda_handler"
-  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+  handler         = "lambda_function.lambda_handler"
+  source_code_hash = filebase64sha256("${path.module}/lambda_function.py")
   runtime         = "python3.9"
-  timeout         = 300
+  timeout         = var.lambda_timeout
+  memory_size     = var.lambda_memory
 
   environment {
     variables = {
-      S3_BUCKET = aws_s3_bucket.image_bucket.bucket
+      EC2_FLASK_URL  = "http://${aws_instance.flask_server.private_ip}:5000"
+      S3_BUCKET      = aws_s3_bucket.image_bucket.bucket
       DYNAMODB_TABLE = aws_dynamodb_table.metadata_table.name
     }
   }
 
-  depends_on = [
-    aws_iam_role_policy.lambda_policy,
-    aws_cloudwatch_log_group.lambda_logs,
-  ]
+  depends_on = [aws_iam_role_policy.lambda_policy]
 }
 
-# Lambda function for fetching images
-resource "aws_lambda_function" "fetch_image" {
-  filename         = "lambda_functions.zip"
-  function_name    = "${var.project_name}-fetch-image"
-  role            = aws_iam_role.lambda_role.arn
-  handler         = "fetch_image.lambda_handler"
-  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  runtime         = "python3.9"
-  timeout         = 300
-
-  environment {
-    variables = {
-      S3_BUCKET = aws_s3_bucket.image_bucket.bucket
-    }
-  }
-}
-
-# Lambda function for preprocessing
-resource "aws_lambda_function" "preprocessing" {
-  filename         = "lambda_functions.zip"
-  function_name    = "${var.project_name}-preprocessing"
-  role            = aws_iam_role.lambda_role.arn
-  handler         = "preprocessing.lambda_handler"
-  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  runtime         = "python3.9"
-  timeout         = 300
-}
-
-# Lambda function for AlexNet inference
-resource "aws_lambda_function" "alexnet_inference" {
-  filename         = "lambda_functions.zip"
-  function_name    = "${var.project_name}-alexnet-inference"
-  role            = aws_iam_role.lambda_role.arn
-  handler         = "alexnet_inference.lambda_handler"
-  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  runtime         = "python3.9"
-  timeout         = 300
-}
-
-# Lambda function for ResNet inference
-resource "aws_lambda_function" "resnet_inference" {
-  filename         = "lambda_functions.zip"
-  function_name    = "${var.project_name}-resnet-inference"
-  role            = aws_iam_role.lambda_role.arn
-  handler         = "resnet_inference.lambda_handler"
-  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  runtime         = "python3.9"
-  timeout         = 300
-}
-
-# Lambda function for MobileNet inference
-resource "aws_lambda_function" "mobilenet_inference" {
-  filename         = "lambda_functions.zip"
-  function_name    = "${var.project_name}-mobilenet-inference"
-  role            = aws_iam_role.lambda_role.arn
-  handler         = "mobilenet_inference.lambda_handler"
-  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  runtime         = "python3.9"
-  timeout         = 300
-}
-
-# Lambda function for aggregating results
-resource "aws_lambda_function" "aggregator" {
-  filename         = "lambda_functions.zip"
-  function_name    = "${var.project_name}-aggregator"
-  role            = aws_iam_role.lambda_role.arn
-  handler         = "aggregator.lambda_handler"
-  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  runtime         = "python3.9"
-  timeout         = 300
-
-  environment {
-    variables = {
-      DYNAMODB_TABLE = aws_dynamodb_table.metadata_table.name
-    }
-  }
-}
-
-# CloudWatch Log Group
+# ==================== CLOUDWATCH LOGS ====================
 resource "aws_cloudwatch_log_group" "lambda_logs" {
   name              = "/aws/lambda/${var.project_name}"
-  retention_in_days = 14
-}
-
-# Step Functions state machine definition
-locals {
-  stepfunctions_definition = jsonencode({
-    Comment = "Image Classification Pipeline"
-    StartAt = "FetchImage"
-    States = {
-      FetchImage = {
-        Type = "Task"
-        Resource = aws_lambda_function.fetch_image.arn
-        Next = "Preprocessing"
-      }
-      Preprocessing = {
-        Type = "Task"
-        Resource = aws_lambda_function.preprocessing.arn
-        Next = "ParallelInference"
-      }
-      ParallelInference = {
-        Type = "Parallel"
-        Branches = [
-          {
-            StartAt = "AlexNet"
-            States = {
-              AlexNet = {
-                Type = "Task"
-                Resource = aws_lambda_function.alexnet_inference.arn
-                End = true
-              }
-            }
-          },
-          {
-            StartAt = "ResNet"
-            States = {
-              ResNet = {
-                Type = "Task"
-                Resource = aws_lambda_function.resnet_inference.arn
-                End = true
-              }
-            }
-          },
-          {
-            StartAt = "MobileNet"
-            States = {
-              MobileNet = {
-                Type = "Task"
-                Resource = aws_lambda_function.mobilenet_inference.arn
-                End = true
-              }
-            }
-          }
-        ]
-        Next = "AggregateResults"
-      }
-      AggregateResults = {
-        Type = "Task"
-        Resource = aws_lambda_function.aggregator.arn
-        End = true
-      }
-    }
-  })
-}
-
-# Step Functions state machine
-resource "aws_sfn_state_machine" "classification_pipeline" {
-  name     = "${var.project_name}-classification-pipeline"
-  role_arn = aws_iam_role.stepfunctions_role.arn
-
-  definition = local.stepfunctions_definition
-}
-
-# Archive the Lambda function code
-data "archive_file" "lambda_zip" {
-  type        = "zip"
-  source_dir  = "lambda-functions"
-  output_path = "lambda_functions.zip"
+  retention_in_days = 7
 }
