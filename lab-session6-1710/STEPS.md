@@ -691,8 +691,11 @@ ls -la *.json 2>/dev/null || echo "No JSON test files remaining"
 rm -rf .terraform/
 rm -f .terraform.lock.hcl
 rm -f terraform.tfstate*
+rm -f *.pem
+rm -f lambda_function.zip
+rm -f tfplan
 
-echo "Terraform state cleared"
+echo "✅ Terraform artifacts cleaned up"
 ```
 
 ---
