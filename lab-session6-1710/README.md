@@ -1,9 +1,7 @@
-# DS252 Lab — Hybrid Architecture with Terraform and CloudFormation
+# DS252 Lab — Hybrid Architecture with Terraform
 
 ## 🎯 Objective
-In this lab, you will deploy the same **hybrid cloud architecture** using two different Infrastructure-as-Code (IaC) tools:
-1. **Terraform** — a cross-cloud, open-source IaC tool.
-2. **AWS CloudFormation** — an AWS-native IaC service.
+In this lab, you will deploy a **hybrid cloud architecture** using **Terraform**, an Infrastructure-as-Code (IaC) tool.
 
 You will deploy a hybrid workflow that combines serverless and traditional compute to process images:
 
@@ -11,22 +9,21 @@ You will deploy a hybrid workflow that combines serverless and traditional compu
 - Lambda function receives an image URL as input
 - Lambda makes a synchronous HTTP call to a Flask server running on EC2
 - EC2 instance downloads the image from the provided URL
-- EC2 uploads the image to S3 and writes metadata to DynamoDB
+- EC2 uploads the image to S3
 - EC2 returns success/failure status back to Lambda
 - Lambda returns the final response to the client
 
-By the end of the lab, you will understand the key differences between Terraform and CloudFormation in defining, deploying, and managing hybrid AWS architectures that combine serverless and traditional compute resources.
+By the end of the lab, you will understand how to deploy hybrid AWS architectures that combine serverless and traditional compute resources using Terraform.
 
 ---
 
 ## 🧠 Learning Outcomes
 You will learn to:
 - Write and apply Terraform configurations for hybrid AWS architectures
-- Define equivalent infrastructure using CloudFormation YAML templates
-- Deploy Lambda functions, EC2 instances, S3 buckets, and DynamoDB tables
+- Deploy Lambda functions, EC2 instances, and S3 buckets
 - Configure security groups and IAM roles for cross-service communication
-- Understand declarative infrastructure workflows (`apply`, `plan`, and `stack creation`)
-- Benchmark and measure performance of hybrid architectures
+- Understand declarative infrastructure workflows (`apply`, `plan`)
+- Test and verify hybrid workflows
 - Deploy, test, and destroy AWS hybrid resources safely
 
 ---
@@ -36,6 +33,7 @@ You will learn to:
 ### Prerequisites
 - Active AWS account with billing enabled
 - AWS CLI configured with appropriate permissions
+- Terraform 1.8+ installed
 - Python 3.8+ for Lambda functions and Flask server
 - Basic understanding of hybrid cloud architectures
 - Knowledge of HTTP requests and Flask web framework
@@ -74,7 +72,6 @@ on darwin_amd64 or linux_amd64
 ### Part 1: Deploy Hybrid Architecture with Terraform
 - **Infrastructure Setup:**
   - Create S3 bucket for storing images
-  - Create DynamoDB table for storing metadata
   - Launch EC2 instance with Flask server
   - Set up IAM roles and policies for all services
   - Configure security groups for Lambda-EC2 communication
@@ -86,21 +83,13 @@ on darwin_amd64 or linux_amd64
   - Receives image URL from Lambda
   - Downloads image from the provided URL
   - Uploads image to S3 bucket
-  - Writes metadata to DynamoDB table
   - Returns success/failure status to Lambda
 
-### Part 2: Deploy Same Architecture with CloudFormation
-- Create equivalent CloudFormation templates
-- Deploy the same hybrid infrastructure using AWS CloudFormation
-- Compare deployment processes and resource management
-- Test Lambda-EC2 communication
-
-### Part 3: Benchmark and Compare Architectures
-- Use Python client to invoke both deployments
-- Load profile: **1 RPS for 30 seconds**
-- Measure response times, throughput, and cost
-- Compare performance between Terraform and CloudFormation deployments
-- Analyze hybrid architecture benefits and trade-offs
+### Part 2: Test and Verify the Deployment
+- Invoke Lambda function with test image URLs
+- Verify images are uploaded to S3
+- Measure response times and performance
+- Test multiple concurrent invocations
 
 ---
 
@@ -110,7 +99,7 @@ on darwin_amd64 or linux_amd64
 
 1. **AWS Lambda Function**
    - Entry point for the workflow
-   - Receives image URL via API Gateway or direct invocation
+   - Receives image URL via direct invocation
    - Makes HTTP POST request to EC2 Flask server
    - Returns processed response to client
 
@@ -124,7 +113,7 @@ on darwin_amd64 or linux_amd64
 3. **S3 Bucket**
    - Stores downloaded images
    - Organized by image ID
-   - Versioning enabled for data protection
+   - Public access enabled for PUT/GET operations
 
 ### Data Flow
 
@@ -141,6 +130,6 @@ Client → Lambda → EC2 Flask Server → External URL (Image Download)
 ### Key Benefits of Hybrid Architecture
 
 - **Flexibility**: Combines serverless benefits with traditional compute control
-- **Cost Optimization**: Pay-per-use Lambda with always-on EC2 for processing
+- **Cost Optimization**: Pay-per-use Lambda with efficient EC2 processing
 - **Scalability**: Lambda handles variable load, EC2 provides consistent processing
 - **Technology Choice**: Use best tool for each component (serverless vs traditional)

@@ -73,4 +73,3 @@ User Receives Final Response
 - **outputs.tf**: Output resource IDs and IPs
 - **lambda_function.py**: Lambda code (calls Flask)
 - **flask_server_startup.sh**: EC2 user data script (embedded Flask app)
-- **cloudformation-template.yaml**: CloudFormation alternative

@@ -16,7 +16,6 @@ lab-session6-1710/
 ├── outputs.tf                          # Terraform outputs
 ├── lambda_function.py                  # Lambda function code
 ├── flask_server_startup.sh             # EC2 startup script (includes Flask app)
-├── cloudformation-template.yaml        # CloudFormation template
 └── WORKFLOW.md                         # Workflow documentation
 ```
 
@@ -43,30 +42,22 @@ lab-session6-1710/
 
 ### 4. **Infrastructure as Code**
 - **Terraform**: main.tf, variables.tf, outputs.tf
-- **CloudFormation**: cloudformation-template.yaml
 
 ## 🚀 Deployment Options
 
-### Option 1: Terraform Deployment
+### Terraform Deployment
 ```bash
 terraform init
 terraform plan
 terraform apply
 ```
 
-### Option 2: CloudFormation Deployment
-```bash
-aws cloudformation create-stack \
-  --stack-name ds252-hybrid \
-  --template-body file://cloudformation-template.yaml
-```
-
 ## 📝 Key Features
 
 ✅ **Hybrid Architecture**: Combines serverless (Lambda) with traditional compute (EC2)
 ✅ **Synchronous Communication**: Lambda-EC2 direct HTTP calls
-✅ **Scalable Storage**: S3 for images, DynamoDB for metadata
-✅ **Infrastructure as Code**: Both Terraform and CloudFormation support
+✅ **Scalable Storage**: S3 for images
+✅ **Infrastructure as Code**: Terraform support
 ✅ **Ready to Deploy**: All code and configurations included
 
 ## 🔧 File Descriptions
@@ -80,23 +71,17 @@ aws cloudformation create-stack \
 - **lambda_function.py**: Lambda code that calls Flask server on EC2
 - **flask_server_startup.sh**: EC2 user data script that installs and starts Flask app (embedded code)
 
-### Infrastructure Templates
-- **cloudformation-template.yaml**: Complete CloudFormation template with embedded Lambda and Flask code
-
 ## ⚙️ Next Steps
 
-1. Review the STEPS.md file (to be updated with detailed deployment steps)
+1. Review the STEPS.md file for detailed deployment steps
 2. Configure AWS CLI credentials
-3. Choose deployment method (Terraform or CloudFormation)
-4. Deploy infrastructure
-5. Test the hybrid workflow
-6. Run benchmarks and comparisons
+3. Deploy infrastructure using Terraform
+4. Test the hybrid workflow
+5. Run tests and verify results
 
 ## 📚 Notes
 
 - All code is production-ready with proper error handling
 - EC2 instance uses Amazon Linux 2 AMI (t2.micro eligible)
 - Lambda function uses urllib3 for making HTTP requests
-- Both deployments create identical infrastructure
-- CloudWatch logging enabled for Lambda
 - All services have appropriate IAM permissions
