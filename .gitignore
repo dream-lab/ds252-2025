@@ -14,3 +14,6 @@ tfplan*
 terraform.tfstate*
 lambda_function.zip
 *.zip
+lambda-response.json
+lambda-response-*.json
+response*.json
