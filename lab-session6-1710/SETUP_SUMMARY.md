@@ -8,24 +8,16 @@ All executable files and code for the hybrid architecture have been created.
 
 ```
 lab-session6-1710/
-├── README.md                          # Lab overview and objectives
-├── STEPS.md                           # Detailed deployment steps (to be filled)
-├── SETUP_SUMMARY.md                   # This file
-│
-├── ===== TERRAFORM FILES =====
-├── main.tf                            # Terraform main configuration
-├── variables.tf                       # Terraform variables
-├── outputs.tf                         # Terraform outputs
-│
-├── ===== LAMBDA FUNCTION =====
-├── lambda_function.py                 # Lambda code - calls Flask server on EC2
-│
-├── ===== EC2 FLASK SERVER =====
-├── flask_app.py                       # Flask application code
-├── flask_server_startup.sh            # EC2 user data startup script
-│
-├── ===== CLOUDFORMATION =====
-└── cloudformation-template.yaml       # CloudFormation template
+├── README.md                           # Lab overview and architecture
+├── STEPS.md                            # Step-by-step deployment guide
+├── SETUP_SUMMARY.md                    # This file
+├── main.tf                             # Terraform main configuration
+├── variables.tf                        # Terraform variables
+├── outputs.tf                          # Terraform outputs
+├── lambda_function.py                  # Lambda function code
+├── flask_server_startup.sh             # EC2 startup script (includes Flask app)
+├── cloudformation-template.yaml        # CloudFormation template
+└── WORKFLOW.md                         # Workflow documentation
 ```
 
 ## 📋 Architecture Components
@@ -36,12 +28,13 @@ lab-session6-1710/
 - Makes synchronous HTTP POST call to EC2 Flask server
 - Returns response to client
 
-### 2. **EC2 Flask Server** (`flask_app.py` + `flask_server_startup.sh`)
-- Runs on EC2 instance
-- Receives HTTP requests from Lambda
-- Downloads images from provided URLs
-- Uploads images to S3
-- Returns processing status
+### 2. **EC2 Flask Server** (`flask_server_startup.sh`)
+- Runs on EC2 instance (`t2.micro`)
+- Downloads and processes images from URLs
+- Uploads images to S3 via REST API calls
+- Responds back to Lambda with processing results
+- Port: 5000
+- Flask app code is embedded in the startup script
 
 ### 3. **S3 Bucket**
 - Stores downloaded images
@@ -79,14 +72,13 @@ aws cloudformation create-stack \
 ## 🔧 File Descriptions
 
 ### Terraform Files
-- **main.tf**: Complete infrastructure definition (VPC, Security Groups, EC2, Lambda, S3, DynamoDB, IAM)
-- **variables.tf**: Configuration variables (region, instance type, timeouts, memory)
-- **outputs.tf**: Output values (IPs, ARNs, names)
+- **main.tf**: Defines all AWS resources (VPC, EC2, Lambda, S3, IAM, Security Groups)
+- **variables.tf**: Input variables with defaults (AWS region, instance type, etc.)
+- **outputs.tf**: Exports important resource IDs and IPs
 
 ### Application Code
-- **lambda_function.py**: Pure Python Lambda code using urllib3 for HTTP requests
-- **flask_app.py**: Flask web application with three endpoints (/health, /process-image, /)
-- **flask_server_startup.sh**: EC2 bootstrap script (installs dependencies, starts Flask)
+- **lambda_function.py**: Lambda code that calls Flask server on EC2
+- **flask_server_startup.sh**: EC2 user data script that installs and starts Flask app (embedded code)
 
 ### Infrastructure Templates
 - **cloudformation-template.yaml**: Complete CloudFormation template with embedded Lambda and Flask code

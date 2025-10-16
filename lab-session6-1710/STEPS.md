@@ -94,7 +94,6 @@ ls -1 *.tf *.py *.sh *.yaml
 
 # Expected output:
 # cloudformation-template.yaml
-# flask_app.py
 # flask_server_startup.sh
 # lambda_function.py
 # main.tf
@@ -130,11 +129,8 @@ echo "=== outputs.tf ===" && cat outputs.tf
 # Review Lambda code
 echo "=== lambda_function.py ===" && cat lambda_function.py
 
-# Review Flask server code
-echo "=== flask_app.py ===" && head -50 flask_app.py
-
 # Review EC2 bootstrap script
-echo "=== flask_server_startup.sh ===" && head -30 flask_server_startup.sh
+echo "=== flask_server_startup.sh ===" && head -50 flask_server_startup.sh
 ```
 
 ### Step 1.4: Validate Terraform Configuration
