@@ -373,8 +373,6 @@ rm -f lambda_function.zip
 rm -f tfplan
 rm -f test-*.json
 rm -f response*.json
-rm -f benchmark_results.png
-rm -f benchmark_results.json
 rm -rf benchmark_results/
 
 echo "✅ Cleanup complete"
