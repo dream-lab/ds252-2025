@@ -29,7 +29,7 @@ We’ll use the same EKS cluster from previous labs.
 
 ## Prerequisites:
 
-EKS Cluster ready (from lab 5):
+EKS Cluster ready (from [lab 5]([url](https://github.com/dream-lab/ds252-2025/tree/main/lab-session5-0310))):
 ```
 kubectl get nodes
 ```
