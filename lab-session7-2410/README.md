@@ -14,14 +14,14 @@ We’ll use the same EKS cluster from previous labs.
 |  | Flask App (OTel)   | --> | OTel Collector         |  |
 |  | Emits traces/metrics|    | (aggregates + exports) |  |
 |  +--------------------+     +-----------+------------+  |
-|                                     |                 |
-|                       +-------------+------------+     |
-|                       | Prometheus (scrapes)     |     |
-|                       +-------------+------------+     |
-|                                     |                 |
-|                               +-----+-----+           |
-|                               | Grafana    |           |
-+-------------------------------+-------------+----------+
+|                                     |                   |
+|                       +-------------+------------+      |
+|                       | Prometheus (scrapes)     |      |
+|                       +-------------+------------+      |
+|                                     |                   |
+|                               +-----+-----+             |
+|                               | Grafana    |            |
++-------------------------------+-------------+-----------+
              |
         IAM Role (IRSA)
         grants limited access to CloudWatch/AMP
