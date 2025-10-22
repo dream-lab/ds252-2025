@@ -279,4 +279,13 @@ jmeter -n -t hash-load.jmx \
   -l results.jtl
 ```
 
-- Observe load on Grafana
+- Observe load on Grafana / Run Queries
+
+```
+rate(flask_http_request_total[30s])
+histogram_quantile(0.95, sum(rate(flask_http_request_duration_seconds_bucket[1m])) by (le))
+```
+
+# Cleanup
+
+Follow the [cleanup instructions](https://github.com/dream-lab/ds252-2025/tree/main/lab-session5-0310#cleanup-avoid-costs) from lab 5 to cleanup EKS Cluster.
