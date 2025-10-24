@@ -62,6 +62,7 @@ export NS_MON=monitoring
 # Your ECR image (from previous lab): use tag 'latest'
 export REPO_URI="1234567890.dkr.ecr.ap-south-1.amazonaws.com/ds252-flask"
 export IMAGE_TAG="latest"```
+export APP_IMAGE="YOUR_IMAGE_NAME"
 
 ---
 
