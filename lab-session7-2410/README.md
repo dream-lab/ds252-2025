@@ -189,6 +189,172 @@ helm upgrade --install otel-collector open-telemetry/opentelemetry-collector \
   --set config.receivers.otlp.protocols.grpc.endpoint="0.0.0.0:4317"
 ```
 
+OR
+## Custom Setup:
+
+3) Install an OpenTelemetry Collector that exposes:
+
+Internal telemetry on :8888 (always scrapable; shows otelcol_build_info, etc.)
+
+Prometheus exporter on :8889 (exposes metrics received via OTLP)
+The telemetry.metrics.readers: pull→prometheus form is the current config; the old address: key is ignored in recent releases. 
+
+
+3.1 ConfigMap (otelcol config)
+```bash
+cat > otel-collector-config.yaml <<'YAML'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: monitoring
+data:
+  collector.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+    processors:
+      batch: {}
+    exporters:
+      prometheus:
+        endpoint: 0.0.0.0:8889
+    service:
+      telemetry:
+        metrics:
+          # Expose internal collector metrics on 0.0.0.0:8888 for Prometheus to scrape
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: 0.0.0.0
+                    port: 8888
+      pipelines:
+        metrics:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [prometheus]
+YAML
+```
+```bash
+kubectl apply -f otel-collector-config.yaml
+```
+> Prometheus exporter on 0.0.0.0:8889 is the standard way to expose OTLP-ingested metrics for scraping. 
+
+
+
+3.2 Deployment + Service (expose ports telemetry:8888, metrics:8889, otlp-grpc:4317)
+
+```bash
+cat > otel-collector-deploy-svc.yaml <<'YAML'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: otel-collector }
+  template:
+    metadata:
+      labels: { app: otel-collector }
+    spec:
+      containers:
+      - name: collector
+        image: otel/opentelemetry-collector-contrib:latest
+        args: ["--config=/etc/otel/collector.yaml"]
+        ports:
+          - name: otlp-grpc
+            containerPort: 4317
+          - name: metrics
+            containerPort: 8889
+          - name: telemetry
+            containerPort: 8888
+        volumeMounts:
+          - name: cfg
+            mountPath: /etc/otel
+      volumes:
+        - name: cfg
+          configMap:
+            name: otel-collector-config
+            items:
+              - key: collector.yaml
+                path: collector.yaml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: monitoring
+  labels:
+    app: otel-collector
+spec:
+  selector:
+    app: otel-collector
+  ports:
+    - name: telemetry
+      port: 8888
+      targetPort: 8888
+    - name: metrics
+      port: 8889
+      targetPort: 8889
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+YAML
+```
+```bash
+kubectl apply -f otel-collector-deploy-svc.yaml
+kubectl -n monitoring rollout status deploy/otel-collector
+```
+
+3.3 ServiceMonitors (one for telemetry, one for pipeline metrics)
+
+```bash
+cat > otel-servicemonitors.yaml <<'YAML'
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: otel-collector-telemetry
+  namespace: monitoring
+  labels:
+    release: prometheus     # <-- REQUIRED for kube-prometheus-stack to pick it up
+spec:
+  namespaceSelector:
+    matchNames: ["monitoring"]
+  selector:
+    matchLabels:
+      app: otel-collector
+  endpoints:
+    - port: telemetry
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: otel-collector
+  namespace: monitoring
+  labels:
+    release: prometheus     # <-- REQUIRED
+spec:
+  namespaceSelector:
+    matchNames: ["monitoring"]
+  selector:
+    matchLabels:
+      app: otel-collector
+  endpoints:
+    - port: metrics
+      interval: 15s
+YAML
+```
+
+```bash
+kubectl apply -f otel-servicemonitors.yaml
+```
+
+
 - Verify Metrics in Prometheus
 Open Prometheus -> Targets -> confirm:
 
