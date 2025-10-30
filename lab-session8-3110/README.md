@@ -34,23 +34,13 @@ Students will build an end-to-end MLOps workflow using  **Kubeflow on AWS** . Th
 
 **Start the EKS cluster from Lab 5.**
 
-Setup EKS Cluster from [Lab 5](https://github.com/dream-lab/ds252-2025/tree/main/lab-session5-0310) (Till Step 3 of Lab 5)
+- Setup EKS Cluster from [Lab 5](https://github.com/dream-lab/ds252-2025/tree/main/lab-session5-0310) (Till Step 3 of Lab 5)
+- Download and store [this](https://www.kaggle.com/datasets/thedevastator/unlock-profits-with-e-commerce-sales-data) dataset locally.
 
 Ensure the following are configured:
 
 * AWS CLI (`aws sts get-caller-identity`)
 * IAM permissions for S3, ECR, DynamoDB, and EKS
-* Python ≥3.10 on your local machine
-
-Setup environment variables:
-
-```bash
-export AWS_REGION=ap-south-1
-export AWS_ACCOUNT_ID=<your_aws_account_id>
-export BUCKET=mlops-bucket-<yourname>
-export ECR_REPO_TRAIN=ecommerce-train
-export KFP_HOST="https://<your-kubeflow-endpoint>/pipeline"
-```
 
 ---
 
