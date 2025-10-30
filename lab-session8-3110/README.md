@@ -43,25 +43,6 @@ Ensure the following are configured:
 * IAM permissions for S3, ECR, DynamoDB, and EKS
 
 ---
-
-## Task 0: Data Ingestion
-
-### Step 0.1 – Download Dataset
-
-Download the Kaggle **E-Commerce Sales Dataset** and save it as `ecommerce_sales.csv`.
-
-### Step 0.2 – Preprocess and Upload to S3
-
-```bash
-python data/prepare_dataset.py --src ./data/ecommerce_sales.csv --dst ./data/ecommerce_sales.parquet
-aws s3 cp ./data/ecommerce_sales.csv s3://$BUCKET/data/ecommerce_sales.csv
-aws s3 cp ./data/ecommerce_sales.parquet s3://$BUCKET/data/ecommerce_sales.parquet
-```
-
-This creates a structured Parquet version for downstream ML and feature engineering.
-
----
-
 ## Task 1: Feature Store Integration with Feast
 
 **Goal:** Use Feast to register features and store them in DynamoDB for online access.
@@ -70,47 +51,69 @@ This creates a structured Parquet version for downstream ML and feature engineer
 
 ```bash
 pip install "feast[aws]" pandas pyarrow boto3 s3fs
+feast init ecommerce_features
+```
+
+Cleanup example file:
+```bash
+cd ecommerce_features/feature_repo
+rm example.py example_repo.py || true
 ```
 
 Edit `feature_store/feature_store.yaml`:
 
 ```yaml
-project: ecommerce
-registry: s3://$BUCKET/feast/registry.db
-provider: aws
+project: ecommerce_features
+registry: data/registry.db
+provider: local
 
 offline_store:
   type: file
-  path: s3://$BUCKET/data
 
 online_store:
   type: dynamodb
   region: ap-south-1
 ```
 
-### Step 1.2 – Define Features
+### Step 1.2 – Prepare Dataset
 
-In `features.py`:
-
-```python
-sales_source = FileSource(
-    path="s3://$BUCKET/data/ecommerce_sales.parquet",
-    event_timestamp_column="Date"
-)
-```
-
-### Step 1.3 – Apply and Materialize
+Place your raw CSV file at:
 
 ```bash
-cd feature_store
+ecommerce_features/feature_repo/data/raw/Amazon Sale Report.csv
+```
+
+Run ETL:
+
+```bash
+python scripts/prepare_dataset.py
+```
+
+### Step 1.3 – Apply and materialize
+
+```bash
 feast apply
-feast materialize-incremental $(date +%Y-%m-%dT%H:%M:%S)
+feast materialize 2018-01-01T00:00:00 2026-01-01T00:00:00
 ```
 
 Validate lookup:
 
 ```bash
-python -c "from feast import FeatureStore; s=FeatureStore('.'); print(s.get_online_features(features=['sales_features:avg_sales'], entity_rows=[{'customer_id':'C123'}]).to_df())"
+python - <<'PY'
+from feast import FeatureStore
+store = FeatureStore(repo_path="ecommerce_features/feature_repo")
+
+resp = store.get_online_features(
+    features=[
+        "sales_features:amount",
+        "sales_features:qty",
+        "sales_features:category",
+    ],
+    entity_rows=[{"order_id": "405-8078784-5731545"}],
+).to_dict()
+
+print(resp)
+PY
 ```
 
 **Outcome:** Features are now registered, versioned, and queryable in DynamoDB.
