@@ -142,7 +142,7 @@ docker tag $ECR_REPO_TRAIN:latest $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/
 
 ```bash
 aws ecr create-repository --repository-name $ECR_REPO_TRAIN --region $AWS_REGION || true
-docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO_TRAIN:latest
+docker push $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO_TRAIN:latest
 ```
 
 **Outcome:** Your model training container image is now available to Kubeflow.
