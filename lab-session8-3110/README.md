@@ -123,7 +123,7 @@ PY
 ## Task 2: Build & Push Training Image
 export variables:
 ```bash
-export REGION=ap-south-1                                                                                                      11:08:52 AM
+export REGION=ap-south-1
 export ACCOUNT_ID=961341544454
 export BUCKET=ml-bucket-nikhil                # <-- change to your bucket
 export MODEL_PREFIX=models/sales-model        # path where model will land
