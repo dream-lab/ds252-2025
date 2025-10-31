@@ -135,7 +135,7 @@ export ECR_REPO_TRAIN=ecommerce-trainer
 ```bash
 cd pipelines/components/train
 docker build -t $ECR_REPO_TRAIN:latest .
-docker tag $ECR_REPO_TRAIN:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO_TRAIN:latest
+docker tag $ECR_REPO_TRAIN:latest $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO_TRAIN:latest
 ```
 
 ### Step 2.2 – Push to ECR
