@@ -121,8 +121,15 @@ PY
 ---
 
 ## Task 2: Build & Push Training Image
-
+export variables:
+```bash
+export REGION=ap-south-1                                                                                                      11:08:52 AM
+export ACCOUNT_ID=961341544454
+export BUCKET=ml-bucket-nikhil                # <-- change to your bucket
+export MODEL_PREFIX=models/sales-model        # path where model will land
+export DATA_PREFIX=data                       # path where parquet
 ### Step 2.1 – Create Docker Image
+```
 
 ```bash
 cd pipelines/components/train
