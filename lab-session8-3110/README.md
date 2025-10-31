@@ -141,16 +141,92 @@ docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO_TRAIN:la
 
 ---
 
-## Task 3: Run Kubeflow Pipeline
+## Task 3: Build & Run Kubeflow Pipeline
 
-### Step 3.1 – Compile and Submit Pipeline
-
+### Step 3.1 – Setup Kubeflow Pipelines:
+Install cert-manager
 ```bash
-pip install kfp
-python scripts/compile_and_submit.py \
-  --kfp_host "$KFP_HOST" \
-  --bucket "$BUCKET" \
-  --train_image "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO_TRAIN:latest"
+kubectl create ns cert-manager --dry-run=client -o yaml | kubectl apply -f -
+helm repo add jetstack https://charts.jetstack.io
+helm repo update
+helm upgrade --install cert-manager jetstack/cert-manager \
+  -n cert-manager --version v1.15.1 --set installCRDs=true
+
+kubectl -n cert-manager rollout status deploy/cert-manager --timeout=120s
+kubectl -n cert-manager get pods
+```
+
+Install Kubeflow Pipelines:
+```bash
+# Cluster-scoped CRDs
+kubectl apply -k "github.com/kubeflow/pipelines/manifests/kustomize/cluster-scoped-resources?ref=$PIPELINE_VERSION"
+kubectl wait --for=condition=Established --timeout=90s crd/applications.app.k8s.io || true
+
+# Namespaced resources (env/dev)
+kubectl apply -k "github.com/kubeflow/pipelines/manifests/kustomize/env/dev?ref=$PIPELINE_VERSION"
+
+# Watch until mysql, minio, cache-server, metadata-*, ml-pipeline-*, ui are Running
+watch -n2 'kubectl -n kubeflow get pods'
+```
+
+Install KServe:
+```bash
+helm repo add kserve https://ghcr.io/kserve/charts
+helm repo update
+
+# CRDs first
+helm upgrade --install kserve-crd oci://ghcr.io/kserve/charts/kserve-crd \
+  -n kserve --create-namespace --version v0.15.0
+
+# Controller (RawDeployment works out-of-the-box; you can use it without Knative)
+helm upgrade --install kserve oci://ghcr.io/kserve/charts/kserve \
+  -n kserve --version v0.15.0
+
+kubectl -n kserve get pods
+```
+
+Portforward and Access KFP UI:
+```bash
+# From your laptop:
+kubectl -n kubeflow port-forward svc/ml-pipeline-ui 8080:80
+# Open: http://localhost:8080
+```
+
+Set Appropriate Permissions:
+```bash
+# Enable IRSA (OIDC) on the cluster
+eksctl utils associate-iam-oidc-provider --cluster "$CLUSTER" --region "$REGION" --approve
+
+# Create a policy (edit your bucket/permissions)
+cat > policy.json <<'JSON'
+{
+  "Version":"2012-10-17",
+  "Statement":[
+    {"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:BatchGetItem","dynamodb:Query","dynamodb:Scan"],"Resource":"*"},
+    {"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:ListBucket"],"Resource":["arn:aws:s3:::ds252-ml-models-nikhil","arn:aws:s3:::ds252-ml-models-nikhil/*"]}
+  ]
+}
+JSON
+aws iam create-policy --policy-name kfp-feast-s3-policy --policy-document file://policy.json
+
+# Bind policy to a ServiceAccount (used when creating the Run in KFP UI)
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+eksctl create iamserviceaccount \
+  --cluster "$CLUSTER" --region "$REGION" \
+  --namespace kubeflow --name kfp-runner \
+  --attach-policy-arn arn:aws:iam::$ACCOUNT_ID:policy/kfp-feast-s3-policy \
+  --approve --override-existing-serviceaccounts
+```
+
+
+If Pods are in CrashLoop (Install standalone KFP):
+```bash
+# 1) Install (or re-apply) KFP cluster-scoped CRDs
+kubectl apply -k "github.com/kubeflow/pipelines/manifests/kustomize/cluster-scoped-resources?ref=$PIPELINE_VERSION"
+kubectl wait --for=condition=established --timeout=60s crd/applications.app.k8s.io
+
+# 2) Install the platform-agnostic env (works off-cloud, incl. EKS)
+kubectl apply -k "github.com/kubeflow/pipelines/manifests/kustomize/env/platform-agnostic?ref=$PIPELINE_VERSION"
 ```
 
 **Outcome:** Kubeflow orchestrates training and saves the model artifact in S3.
