@@ -1,0 +1,10 @@
+project: ecommerce_features
+registry: data/registry.db
+provider: local
+
+offline_store:
+  type: file
+
+online_store:
+  type: dynamodb
+  region: ap-south-1
