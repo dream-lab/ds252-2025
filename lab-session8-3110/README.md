@@ -128,6 +128,7 @@ export ACCOUNT_ID=961341544454
 export BUCKET=ml-bucket-nikhil                # <-- change to your bucket
 export MODEL_PREFIX=models/sales-model        # path where model will land
 export DATA_PREFIX=data                       # path where parquet
+export ECR_REPO_TRAIN=ecommerce-trainer
 ### Step 2.1 – Create Docker Image
 ```
 
