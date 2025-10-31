@@ -168,6 +168,15 @@ kubectl -n cert-manager get pods
 ```
 
 Install Kubeflow Pipelines:
+
+Export Variables:
+```bash
+export CLUSTER="ds252-observe-03-oct"
+export REGION="ap-south-1"
+export PIPELINE_VERSION="2.14.3"   # KFP release to install
+```
+
+
 ```bash
 # Cluster-scoped CRDs
 kubectl apply -k "github.com/kubeflow/pipelines/manifests/kustomize/cluster-scoped-resources?ref=$PIPELINE_VERSION"
